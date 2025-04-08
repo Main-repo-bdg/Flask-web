@@ -46,6 +46,8 @@ logger = logging.getLogger("webhook-app")
 load_dotenv()
 
 app = Flask(__name__)
+# Set application start time for uptime tracking
+app.start_time = time.time()
 
 # Data directory for storing JSON submissions
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
@@ -753,13 +755,20 @@ def test_dropbox_connection():
 def health_check():
     """Health check endpoint for the keep-alive service"""
     # Check if this is a keep-alive request
-    is_keep_alive = request.headers.get('X-Keep-Alive') == 'true'
+    is_keep_alive = request.headers.get('X-Keep-Alive') in ('true', 'test')
     
     # Basic health check - could be expanded to check database, Dropbox connection, etc.
     status = {
         "status": "healthy",
         "timestamp": datetime.datetime.now().isoformat(),
-        "version": "1.0.0"
+        "version": "1.0.0",
+        "uptime": int(time.time() - app.start_time) if hasattr(app, 'start_time') else 0,
+        "environment": {
+            "python_version": os.environ.get("PYTHON_VERSION", "Unknown"),
+            "flask_version": getattr(Flask, "__version__", "Unknown"),
+            "render": os.environ.get("RENDER", "Not set"),
+            "port": os.environ.get("PORT", "5000")
+        }
     }
     
     # Only log non-keep-alive requests to avoid flooding the logs
@@ -788,94 +797,203 @@ def init_keep_alive_service(app=None):
         app: Flask application instance (optional)
     
     Returns:
-        bool: True if initialization was successful, False otherwise
+        dict: Status information about the initialization process
     """
-    # Check if service should be enabled
-    if not (os.environ.get('RENDER') == 'true' or os.environ.get('KEEP_ALIVE_ENABLED') == 'true'):
-        logger.info("Keep-alive service not enabled (set KEEP_ALIVE_ENABLED=true to enable)")
-        return False
-        
+    result = {
+        "success": False,
+        "enabled": False,
+        "app_url": None,
+        "interval_minutes": None,
+        "errors": [],
+        "warnings": [],
+        "diagnostics": [],
+        "environment": {}
+    }
+    
+    # 1. Check if service should be enabled
+    keep_alive_enabled = os.environ.get('KEEP_ALIVE_ENABLED', '').lower() in ('true', 'yes', '1', 't')
+    render_enabled = os.environ.get('RENDER', '').lower() in ('true', 'yes', '1', 't')
+    force_enabled = os.environ.get('FORCE_KEEP_ALIVE', '').lower() in ('true', 'yes', '1', 't')
+    
+    # Store environment status
+    result["environment"] = {
+        "KEEP_ALIVE_ENABLED": os.environ.get('KEEP_ALIVE_ENABLED', 'Not set'),
+        "RENDER": os.environ.get('RENDER', 'Not set'),
+        "FORCE_KEEP_ALIVE": os.environ.get('FORCE_KEEP_ALIVE', 'Not set'),
+        "RENDER_EXTERNAL_URL": os.environ.get('RENDER_EXTERNAL_URL', 'Not set'),
+        "APP_URL": os.environ.get('APP_URL', 'Not set'),
+        "KEEP_ALIVE_INTERVAL_MINUTES": os.environ.get('KEEP_ALIVE_INTERVAL_MINUTES', '10'),
+        "KEEP_ALIVE_ENDPOINT": os.environ.get('KEEP_ALIVE_ENDPOINT', '/health')
+    }
+    
+    if not (keep_alive_enabled or render_enabled or force_enabled):
+        message = "Keep-alive service not enabled (set KEEP_ALIVE_ENABLED=true to enable)"
+        logger.info(message)
+        result["diagnostics"].append(message)
+        return result
+    
+    # Service is enabled
+    result["enabled"] = True
+    logger.info("Keep-alive service is enabled")
+    result["diagnostics"].append("Keep-alive service is enabled via environment variables")
+    
+    # 2. Import keep_alive module
     try:
-        # Try to import the keep_alive module
-        try:
-            import keep_alive
-        except ImportError:
-            logger.warning("Could not import keep_alive module. Is it installed?")
-            logger.warning("Keep-alive service not started.")
-            return False
+        import keep_alive
+        result["diagnostics"].append("Successfully imported keep_alive module")
+    except ImportError as e:
+        error_msg = f"Could not import keep_alive module: {str(e)}"
+        logger.error(error_msg)
+        result["errors"].append(error_msg)
+        result["diagnostics"].append("Fix: Make sure keep_alive.py is in your application directory")
+        return result
         
-        # Get configuration from environment variables
+    # 3. Get configuration from environment variables
+    try:
         interval_mins = int(os.environ.get('KEEP_ALIVE_INTERVAL_MINUTES', 10))
+        result["interval_minutes"] = interval_mins
+        endpoint = os.environ.get('KEEP_ALIVE_ENDPOINT', '/health')
+        result["endpoint"] = endpoint
         
-        # Try multiple approaches to determine the application URL
-        app_url = None
+        # Test immediate mode flag
+        test_endpoint = os.environ.get('KEEP_ALIVE_TEST_ENDPOINT', '').lower() in ('true', 'yes', '1', 't')
+        result["test_endpoint"] = test_endpoint
         
-        # 1. Check environment variables (most reliable for Render)
-        if os.environ.get('RENDER_EXTERNAL_URL'):
-            app_url = os.environ.get('RENDER_EXTERNAL_URL')
-            logger.info(f"Using RENDER_EXTERNAL_URL: {app_url}")
-            
-        # 2. Check for manually specified URL
-        elif os.environ.get('APP_URL'):
-            app_url = os.environ.get('APP_URL')
-            logger.info(f"Using APP_URL from environment: {app_url}")
-            
-        # 3. Try to construct from host/port environment variables
-        else:
-            # Try to determine the URL from the environment
-            host = os.environ.get('HOST', 'localhost')
-            port = int(os.environ.get('PORT', 5000))
-            protocol = 'https' if os.environ.get('RENDER') == 'true' else 'http'
-            
-            # Handle special case for localhost
-            if host == 'localhost' or host == '0.0.0.0' or host == '127.0.0.1':
-                # For local development
-                if os.environ.get('RENDER') == 'true':
-                    # On Render, we need to get the service name
-                    service_name = os.environ.get('RENDER_SERVICE_NAME')
-                    if service_name:
-                        app_url = f"https://{service_name}.onrender.com"
-                        logger.info(f"Constructed Render URL from service name: {app_url}")
-                    else:
-                        logger.warning("Could not determine Render service name")
-                        app_url = "http://localhost:5000"  # Fallback
+        logger.info(f"Keep-alive configuration: interval={interval_mins}min, endpoint={endpoint}")
+        result["diagnostics"].append(f"Configured interval: {interval_mins} minutes, endpoint: {endpoint}")
+    except Exception as e:
+        warning_msg = f"Error parsing keep-alive configuration: {str(e)}"
+        logger.warning(warning_msg)
+        result["warnings"].append(warning_msg)
+        # Use defaults if there's an error
+        interval_mins = 10
+        endpoint = '/health'
+        result["interval_minutes"] = interval_mins
+        result["endpoint"] = endpoint
+        
+    # 4. Determine application URL using multiple approaches
+    app_url = None
+    url_source = None
+    
+    # 4.1 Check environment variables (most reliable for Render)
+    if os.environ.get('RENDER_EXTERNAL_URL'):
+        app_url = os.environ.get('RENDER_EXTERNAL_URL')
+        url_source = "RENDER_EXTERNAL_URL"
+        logger.info(f"Using RENDER_EXTERNAL_URL: {app_url}")
+        
+    # 4.2 Check for manually specified URL
+    elif os.environ.get('APP_URL'):
+        app_url = os.environ.get('APP_URL')
+        url_source = "APP_URL"
+        logger.info(f"Using APP_URL from environment: {app_url}")
+        
+    # 4.3 Try to construct from host/port environment variables
+    else:
+        # Get host and port from environment or defaults
+        host = os.environ.get('HOST', 'localhost')
+        port = int(os.environ.get('PORT', 5000))
+        protocol = 'https' if render_enabled else 'http'
+        
+        # Handle special case for localhost
+        if host in ('localhost', '0.0.0.0', '127.0.0.1'):
+            # For local development
+            if render_enabled:
+                # On Render, try to get the service name
+                service_name = os.environ.get('RENDER_SERVICE_NAME')
+                if service_name:
+                    app_url = f"https://{service_name}.onrender.com"
+                    url_source = "RENDER_SERVICE_NAME"
+                    logger.info(f"Constructed Render URL from service name: {app_url}")
                 else:
-                    # Local development
-                    app_url = f"{protocol}://{host}"
-                    if port != 80 and port != 443:
-                        app_url += f":{port}"
-                    logger.info(f"Using local development URL: {app_url}")
+                    # Last resort for Render - get instance URL from request
+                    # This won't work at app startup, only in blueprint init
+                    if app and hasattr(app, 'config'):
+                        # Try to get the server name from app config
+                        server_name = app.config.get('SERVER_NAME') 
+                        if server_name:
+                            app_url = f"https://{server_name}"
+                            url_source = "Flask SERVER_NAME"
+                            logger.info(f"Using Flask server name: {app_url}")
+                        else:
+                            # Fallback to best guess for Render
+                            app_url = f"https://webhook-data-viewer.onrender.com"
+                            url_source = "Fallback Render domain"
+                            logger.warning(f"Using fallback Render domain: {app_url}")
+                    else:
+                        # Complete fallback
+                        app_url = "https://webhook-data-viewer.onrender.com"
+                        url_source = "Hard-coded fallback"
+                        logger.warning(f"Using hard-coded fallback URL: {app_url}")
             else:
-                # Using provided host
+                # Local development
                 app_url = f"{protocol}://{host}"
                 if port != 80 and port != 443:
                     app_url += f":{port}"
-                logger.info(f"Constructed URL from HOST/PORT: {app_url}")
-        
-        # Start the keep-alive service
-        if app_url:
-            success = keep_alive.init_keep_alive(
+                url_source = "Local development"
+                logger.info(f"Using local development URL: {app_url}")
+        else:
+            # Using provided host
+            app_url = f"{protocol}://{host}"
+            if port != 80 and port != 443:
+                app_url += f":{port}"
+            url_source = "HOST/PORT variables"
+            logger.info(f"Constructed URL from HOST/PORT: {app_url}")
+    
+    # Store URL information
+    result["app_url"] = app_url
+    result["url_source"] = url_source
+    result["diagnostics"].append(f"Application URL: {app_url} (source: {url_source})")
+    
+    # 5. Initialize and start the keep-alive service
+    if app_url:
+        try:
+            # Start the service with detailed status reporting
+            service_result = keep_alive.init_keep_alive(
                 app_url=app_url,
                 interval_minutes=interval_mins,
-                endpoint='/health',
-                enabled=True
+                endpoint=endpoint,
+                enabled=True,
+                test_endpoint=test_endpoint
             )
             
-            if success:
-                logger.info(f"Keep-alive service initialized with URL {app_url} and interval of {interval_mins} minutes")
-                return True
-            else:
-                logger.error(f"Failed to start keep-alive service with URL {app_url}")
-                return False
-        else:
-            logger.error("Could not determine application URL for keep-alive service")
-            return False
+            # Update our result with the service initialization details
+            result.update(service_result)
             
-    except Exception as e:
-        logger.error(f"Error initializing keep-alive service: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
-        return False
+            if service_result.get("success"):
+                logger.info(f"Keep-alive service initialized successfully with URL {app_url}")
+                result["success"] = True
+            else:
+                error_msg = f"Failed to start keep-alive service with URL {app_url}"
+                if service_result.get("errors"):
+                    error_msg += f": {service_result['errors'][0]}"
+                logger.error(error_msg)
+                result["errors"].append(error_msg)
+                
+            # Include any warnings from the service initialization
+            for warning in service_result.get("warnings", []):
+                result["warnings"].append(warning)
+                
+            # Include any diagnostics from the service initialization
+            for diagnostic in service_result.get("diagnostics", []):
+                result["diagnostics"].append(diagnostic)
+                
+            return result
+            
+        except Exception as e:
+            error_msg = f"Exception during keep-alive service initialization: {str(e)}"
+            logger.error(error_msg)
+            result["errors"].append(error_msg)
+            import traceback
+            tb = traceback.format_exc()
+            logger.error(tb)
+            result["diagnostics"].append(tb)
+            return result
+    else:
+        error_msg = "Could not determine application URL for keep-alive service"
+        logger.error(error_msg)
+        result["errors"].append(error_msg)
+        result["diagnostics"].append("Fix: Set APP_URL environment variable explicitly")
+        return result
 
 # Initialize the keep-alive service when the application starts
 # Create a function to initialize services with app context
@@ -883,14 +1001,43 @@ def initialize_services_with_app(app):
     """Initialize services that depend on the application context"""
     with app.app_context():
         try:
-            import keep_alive
-            if not keep_alive.keep_alive_service.running:
-                init_keep_alive_service()
-                logger.info("Keep-alive service initialized with app context")
-        except ImportError:
-            logger.warning("Could not import keep_alive module")
+            logger.info("Starting service initialization within app context")
+            
+            # Initialize keep-alive service if needed
+            try:
+                import keep_alive
+                
+                # Check if already running
+                if keep_alive.keep_alive_service.running:
+                    logger.info("Keep-alive service is already running - skipping initialization")
+                else:
+                    logger.info("Initializing keep-alive service from app context")
+                    # Initialize with the Flask app for better URL detection
+                    result = init_keep_alive_service(app=app)
+                    
+                    # Log detailed results
+                    if result["success"]:
+                        logger.info(f"Keep-alive service successfully initialized with {result['app_url']}")
+                        logger.info(f"Ping interval: {result['interval_minutes']} minutes, endpoint: {result.get('endpoint', '/health')}")
+                    else:
+                        if result.get("errors"):
+                            logger.error(f"Keep-alive initialization failed with errors: {', '.join(result['errors'])}")
+                        if result.get("warnings"):
+                            logger.warning(f"Keep-alive initialization warnings: {', '.join(result['warnings'])}")
+                
+            except ImportError as ie:
+                logger.warning(f"Could not import keep_alive module: {str(ie)}")
+                logger.warning("Make sure keep_alive.py is in your application directory")
+                
+            except Exception as e:
+                logger.error(f"Unexpected error initializing keep-alive service: {str(e)}")
+                logger.error(traceback.format_exc())
+                
+            logger.info("Completed service initialization within app context")
+                
         except Exception as e:
-            logger.error(f"Error initializing services: {str(e)}")
+            logger.error(f"Critical error in service initialization: {str(e)}")
+            logger.error(traceback.format_exc())
 
 # Use a blueprint event for initialization
 # This runs when the application starts without needing before_first_request
