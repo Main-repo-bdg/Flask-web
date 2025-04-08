@@ -4,6 +4,7 @@
 
 {% block extra_css %}
 <style>
+    /* Developer view styles */
     .json-key {
         color: #8839ef;
         font-weight: bold;
@@ -25,6 +26,41 @@
         border-radius: 4px;
         padding: 15px;
         font-family: monospace;
+    }
+    
+    /* Human view styles */
+    .human-viewer {
+        padding: 20px;
+    }
+    .human-key {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: #333;
+        margin-top: 16px;
+        margin-bottom: 4px;
+        text-transform: capitalize;
+    }
+    .human-value {
+        font-size: 1.1rem;
+        margin-bottom: 16px;
+        padding-left: 10px;
+        color: #495057;
+        word-break: break-word;
+    }
+    .human-array {
+        margin-left: 15px;
+        border-left: 3px solid #e9ecef;
+        padding-left: 15px;
+        margin-bottom: 15px;
+    }
+    .human-array-item {
+        margin-bottom: 10px;
+    }
+    .human-object {
+        margin-left: 15px;
+        border-left: 3px solid #e9ecef;
+        padding-left: 15px;
+        margin-bottom: 15px;
     }
 </style>
 {% endblock %}
@@ -67,8 +103,13 @@
     <div class="card-header">
         <ul class="nav nav-tabs card-header-tabs" id="dataTabs" role="tablist">
             <li class="nav-item" role="presentation">
-                <button class="nav-link active" id="formatted-tab" data-bs-toggle="tab" data-bs-target="#formatted" type="button" role="tab" aria-controls="formatted" aria-selected="true">
-                    <i class="fas fa-table me-1"></i>Formatted View
+                <button class="nav-link active" id="human-tab" data-bs-toggle="tab" data-bs-target="#human" type="button" role="tab" aria-controls="human" aria-selected="true">
+                    <i class="fas fa-user me-1"></i>Human View
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="developer-tab" data-bs-toggle="tab" data-bs-target="#developer" type="button" role="tab" aria-controls="developer" aria-selected="false">
+                    <i class="fas fa-table me-1"></i>Developer View
                 </button>
             </li>
             <li class="nav-item" role="presentation">
@@ -80,7 +121,11 @@
     </div>
     <div class="card-body">
         <div class="tab-content" id="dataTabsContent">
-            <div class="tab-pane fade show active" id="formatted" role="tabpanel" aria-labelledby="formatted-tab">
+            <div class="tab-pane fade show active" id="human" role="tabpanel" aria-labelledby="human-tab">
+                <div id="humanViewer" class="human-viewer"></div>
+            </div>
+            
+            <div class="tab-pane fade" id="developer" role="tabpanel" aria-labelledby="developer-tab">
                 <div id="jsonViewer" class="json-viewer"></div>
             </div>
             
@@ -94,7 +139,7 @@
 
 {% block extra_js %}
 <script>
-    // Function to recursively format JSON data for display
+    // Function to recursively format JSON data for developer view
     function formatJSON(obj, level = 0) {
         const indent = '  '.repeat(level);
         let html = '';
@@ -144,11 +189,76 @@
         
         return html;
     }
+    
+    // Function to format JSON data in a human-readable way
+    function formatHumanReadable(obj, level = 0) {
+        let html = '';
+        
+        if (Array.isArray(obj)) {
+            html += '<div class="human-array">';
+            obj.forEach((item, index) => {
+                html += '<div class="human-array-item">';
+                if (typeof item === 'object' && item !== null) {
+                    html += formatHumanReadable(item, level + 1);
+                } else {
+                    html += formatPrimitiveValue(item);
+                }
+                html += '</div>';
+            });
+            html += '</div>';
+        } else if (obj === null) {
+            html += '<div class="human-value">None</div>';
+        } else if (typeof obj === 'object') {
+            const keys = Object.keys(obj);
+            if (level > 0) {
+                html += '<div class="human-object">';
+            }
+            
+            keys.forEach(key => {
+                const value = obj[key];
+                // Format key name (capitalize first letter, remove underscores)
+                const formattedKey = key.replace(/_/g, ' ')
+                    .replace(/\b\w/g, l => l.toUpperCase());
+                
+                html += `<div class="human-key">${formattedKey}</div>`;
+                
+                if (typeof value === 'object' && value !== null) {
+                    html += formatHumanReadable(value, level + 1);
+                } else {
+                    html += formatPrimitiveValue(value);
+                }
+            });
+            
+            if (level > 0) {
+                html += '</div>';
+            }
+        } else {
+            html += formatPrimitiveValue(obj);
+        }
+        
+        return html;
+    }
+    
+    // Helper function to format primitive values
+    function formatPrimitiveValue(value) {
+        if (typeof value === 'string') {
+            return `<div class="human-value">${value}</div>`;
+        } else if (typeof value === 'number') {
+            return `<div class="human-value">${value}</div>`;
+        } else if (typeof value === 'boolean') {
+            return `<div class="human-value">${value ? 'Yes' : 'No'}</div>`;
+        } else if (value === null) {
+            return '<div class="human-value">None</div>';
+        } else {
+            return `<div class="human-value">${value}</div>`;
+        }
+    }
 
-    // Initialize the JSON viewer when the page loads
+    // Initialize the viewers when the page loads
     document.addEventListener('DOMContentLoaded', function() {
         const jsonData = {{ data|tojson }};
         document.getElementById('jsonViewer').innerHTML = formatJSON(jsonData);
+        document.getElementById('humanViewer').innerHTML = formatHumanReadable(jsonData);
     });
 </script>
 {% endblock %}
