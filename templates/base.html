@@ -25,7 +25,19 @@
                             <i class="fas fa-home me-1"></i>Home
                         </a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('keep_alive_status') }}">
+                            <i class="fas fa-heartbeat me-1"></i>Keep-Alive Status
+                        </a>
+                    </li>
                     {% block nav_items %}{% endblock %}
+                </ul>
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('health_check') }}" target="_blank">
+                            <i class="fas fa-stethoscope me-1"></i>Health
+                        </a>
+                    </li>
                 </ul>
             </div>
         </div>
