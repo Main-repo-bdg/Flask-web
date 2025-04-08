@@ -432,31 +432,31 @@ def create_dropbox_path(dbx, path, debug=False):
                 
     return True
 
-def list_dropbox_files(dbx, path, debug=False):
+def list_dropbox_files(dbx, path, debug=False, recursive=False):
     """
     List files and folders in a Dropbox folder.
+    
+    Enhanced version with better error handling and debugging.
     
     Args:
         dbx: Dropbox client instance
         path (str): The Dropbox path to list
         debug (bool): If True, enables verbose debug logging
+        recursive (bool): If True, list files in subfolders recursively
         
     Returns:
         list: A list of Dropbox file and folder metadata objects
+        
+    Raises:
+        Exception: If there's an error fetching the files and no fallback is possible
     """
-    if debug:
-        logger.info(f"Listing files in Dropbox folder: {path}")
-    
     try:
-        result = dbx.files_list_folder(path)
-        entries = result.entries
-        
-        if debug:
-            logger.info(f"Found {len(entries)} entries in {path}")
-        
-        return entries
+        # Call the base implementation
+        return list_files_in_dropbox_folder(dbx, path, recursive=recursive, debug=debug)
     except Exception as e:
-        logger.error(f"Error listing files in Dropbox folder {path}: {str(e)}")
+        # If this is the enhanced version, we just re-raise the exception
+        # for better error handling in the calling code
+        logger.error(f"Error in enhanced list_dropbox_files for {path}: {str(e)}")
         raise
 
 def backup_file(dbx, local_path, dropbox_path):
@@ -842,23 +842,96 @@ def restore_file(dbx, dropbox_path, local_path):
         logger.error(f"Error restoring {dropbox_path}: {str(e)}")
         return False
 
+# Legacy function - renamed to avoid recursion
+def list_files_in_dropbox_folder(dbx, folder_path, recursive=False, debug=False):
+    """
+    List files and folders in a Dropbox folder (internal implementation).
+    This is the implementation used by both the enhanced and legacy interfaces.
+    
+    Args:
+        dbx: Dropbox client instance
+        folder_path (str): The Dropbox path to list
+        recursive (bool): Whether to list files recursively
+        debug (bool): Whether to enable debug logging
+        
+    Returns:
+        list: A list of Dropbox file and folder metadata objects
+    """
+    try:
+        # Log the operation
+        if debug:
+            logger.info(f"Listing files in Dropbox folder: {folder_path} (recursive={recursive})")
+        
+        # Make the API request with pagination support
+        try:
+            result = dbx.files_list_folder(folder_path, recursive=recursive)
+            entries = result.entries
+            
+            # Continue fetching if there's more (pagination)
+            while result.has_more:
+                result = dbx.files_list_folder_continue(result.cursor)
+                entries.extend(result.entries)
+                
+                if debug and len(result.entries) > 0:
+                    logger.info(f"Found additional {len(result.entries)} entries in {folder_path}")
+            
+            # Log the results
+            if debug:
+                num_files = sum(1 for e in entries if hasattr(e, 'is_downloadable') and getattr(e, 'is_downloadable', True))
+                num_folders = sum(1 for e in entries if hasattr(e, 'is_downloadable') and not getattr(e, 'is_downloadable', False))
+                logger.info(f"Found {len(entries)} total entries in {folder_path}: {num_files} files, {num_folders} folders")
+            
+            return entries
+            
+        except Exception as api_err:
+            # Handle specific Dropbox API errors
+            error_msg = f"Dropbox API error listing files in {folder_path}: {str(api_err)}"
+            logger.error(error_msg)
+            
+            # Check if this is a path not found error - return empty list instead of raising
+            if hasattr(api_err, 'error') and hasattr(api_err.error, 'is_path'):
+                if api_err.error.is_path() and api_err.error.get_path().is_not_found():
+                    logger.warning(f"Path not found in Dropbox: {folder_path} - returning empty list")
+                    return []
+            
+            # For other errors, re-raise
+            raise
+            
+    except Exception as e:
+        error_msg = f"Error listing files in Dropbox folder {folder_path}: {str(e)}"
+        logger.error(error_msg)
+        logger.error(f"Exception type: {type(e).__name__}")
+        
+        # Include stack trace for better debugging
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        
+        # Re-raise the exception so the caller can handle it
+        raise
+
+# This uses the implementation above for backward compatibility
 def list_dropbox_files(dbx, folder_path):
     """
     List all files in a Dropbox folder.
-    Returns a list of file metadata objects.
+    
+    Legacy API - For new code, use the enhanced implementation with debug and recursive options.
+    
+    Args:
+        dbx: Dropbox client instance
+        folder_path (str): The Dropbox path to list
+        
+    Returns:
+        list: A list of file metadata objects, or empty list if there's an error
     """
     try:
-        result = dbx.files_list_folder(folder_path, recursive=False)
-        files = result.entries
+        logger.info(f"Listing files in Dropbox folder (legacy method): {folder_path}")
         
-        # Continue fetching if there's more
-        while result.has_more:
-            result = dbx.files_list_folder_continue(result.cursor)
-            files.extend(result.entries)
-            
-        return files
+        # Call the implementation function but catch any exceptions to maintain backward compatibility
+        return list_files_in_dropbox_folder(dbx, folder_path, recursive=False, debug=True)
+        
     except Exception as e:
-        logger.error(f"Error listing Dropbox files in {folder_path}: {str(e)}")
+        logger.error(f"Error in legacy list_dropbox_files for {folder_path}: {str(e)}")
+        logger.error("Returning empty list due to error")
         return []
 
 def restore_all_data():
