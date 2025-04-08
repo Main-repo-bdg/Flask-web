@@ -130,6 +130,9 @@ def webhook():
     
     data = request.json
     
+    # Check for debug mode flag in the request
+    debug_mode = data.get('debug_dropbox', False)
+    
     # Extract sender from data or use IP address
     sender = data.get('sender', request.remote_addr)
     sender = secure_filename(sender)
@@ -138,6 +141,7 @@ def webhook():
     sender_dir = os.path.join(DATA_DIR, sender)
     if not os.path.exists(sender_dir):
         os.makedirs(sender_dir)
+        logger.info(f"Created local directory: {sender_dir}")
     
     # Generate a unique ID for this submission based on timestamp
     submission_id = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
@@ -155,30 +159,44 @@ def webhook():
     with open(file_path, 'w') as f:
         json.dump(data_to_store, f, indent=2)
     
+    logger.info(f"Saved submission {submission_id} for sender {sender}")
+    
     # Automatically backup to Dropbox if enabled
-    backup_status = None
+    backup_result = None
     if ENABLE_AUTO_BACKUP and DROPBOX_SYNC_AVAILABLE:
         try:
-            logger.info(f"Auto-backing up submission {submission_id} to Dropbox")
-            backup_success = dropbox_sync.backup_specific_file(sender, submission_id)
-            backup_status = "success" if backup_success else "failed"
-            if backup_success:
-                logger.info(f"Successfully backed up submission {submission_id} to Dropbox")
+            logger.info(f"Auto-backing up submission {submission_id} to Dropbox (debug={debug_mode})")
+            
+            # Use the enhanced backup function with debug mode
+            backup_result = dropbox_sync.backup_specific_file(sender, submission_id, debug=debug_mode)
+            
+            if backup_result['success']:
+                logger.info(f"Successfully backed up submission {submission_id} to Dropbox at path: {backup_result['path']}")
             else:
-                logger.warning(f"Failed to back up submission {submission_id} to Dropbox")
+                logger.warning(f"Failed to back up submission {submission_id} to Dropbox: {backup_result['error']}")
+                
+            # Log detailed diagnostics if in debug mode
+            if debug_mode and 'details' in backup_result:
+                logger.info(f"Dropbox backup details: {json.dumps(backup_result['details'])}")
+                
         except Exception as e:
-            backup_status = "error"
             logger.error(f"Error backing up to Dropbox: {str(e)}")
+            backup_result = {
+                'success': False,
+                'error': str(e),
+                'details': {'exception': str(e)}
+            }
     
     response = {
         "success": True,
         "id": submission_id,
-        "url": url_for('view_submission', sender=sender, submission_id=submission_id, _external=True)
+        "url": url_for('view_submission', sender=sender, submission_id=submission_id, _external=True),
+        "file_saved": os.path.exists(file_path)
     }
     
     # Add backup status to response if backup was attempted
-    if backup_status:
-        response["backup_status"] = backup_status
+    if backup_result is not None:
+        response["dropbox_backup"] = backup_result
     
     return jsonify(response)
 
@@ -203,6 +221,138 @@ def get_submission_api(sender, submission_id):
     if data is None:
         return jsonify({"error": "Submission not found"}), 404
     return jsonify(data)
+
+@app.route('/api/dropbox/test', methods=['GET'])
+def test_dropbox_connection():
+    """
+    Test the Dropbox connection and folder creation functionality.
+    This endpoint is useful for diagnosing Dropbox integration issues.
+    """
+    if not DROPBOX_SYNC_AVAILABLE:
+        return jsonify({
+            "success": False,
+            "error": "Dropbox sync module is not available. Check if the required packages are installed.",
+            "auto_backup_enabled": ENABLE_AUTO_BACKUP
+        }), 500
+    
+    debug = request.args.get('debug', 'false').lower() == 'true'
+    test_folder = request.args.get('folder', None)
+    
+    result = {
+        "success": False,
+        "auto_backup_enabled": ENABLE_AUTO_BACKUP,
+        "details": {},
+        "diagnostics": []
+    }
+    
+    try:
+        # Step 1: Check environment variables
+        result["diagnostics"].append("Checking environment variables...")
+        
+        app_key = os.getenv("DROPBOX_APP_KEY")
+        app_secret = os.getenv("DROPBOX_APP_SECRET")
+        refresh_token = os.getenv("DROPBOX_REFRESH_TOKEN")
+        
+        if not app_key or not app_secret or not refresh_token:
+            missing = []
+            if not app_key: missing.append("DROPBOX_APP_KEY")
+            if not app_secret: missing.append("DROPBOX_APP_SECRET")
+            if not refresh_token: missing.append("DROPBOX_REFRESH_TOKEN")
+            
+            result["diagnostics"].append(f"Missing environment variables: {', '.join(missing)}")
+            result["error"] = "Missing required Dropbox credentials. Check your .env file."
+            return jsonify(result), 400
+            
+        result["diagnostics"].append("Environment variables found.")
+        result["details"]["env_vars_present"] = True
+        
+        # Step 2: Get Dropbox client
+        result["diagnostics"].append("Attempting to get Dropbox client...")
+        try:
+            dbx = dropbox_sync.get_dropbox_client(debug=debug)
+            result["diagnostics"].append("Successfully obtained Dropbox client.")
+            result["details"]["client_connected"] = True
+            
+            # Get account info
+            account = dbx.users_get_current_account()
+            result["details"]["account_name"] = account.name.display_name
+            result["details"]["account_email"] = account.email
+            result["diagnostics"].append(f"Connected as: {account.name.display_name} ({account.email})")
+        except Exception as e:
+            result["diagnostics"].append(f"Failed to connect to Dropbox: {str(e)}")
+            result["error"] = f"Connection error: {str(e)}"
+            return jsonify(result), 500
+            
+        # Step 3: Test folder creation
+        result["diagnostics"].append("Testing folder creation...")
+        
+        # If a specific test folder was requested, use that
+        if test_folder:
+            test_path = f"{dropbox_sync.DROPBOX_BACKUP_FOLDER}/{test_folder}"
+            result["diagnostics"].append(f"Creating test folder: {test_path}")
+            
+            try:
+                success = dropbox_sync.create_dropbox_path(dbx, test_path, debug=debug)
+                if success:
+                    result["diagnostics"].append(f"Successfully created folder: {test_path}")
+                    result["details"]["test_folder_created"] = True
+                    result["details"]["test_folder_path"] = test_path
+                else:
+                    result["diagnostics"].append(f"Failed to create folder: {test_path}")
+                    result["details"]["test_folder_created"] = False
+                    result["error"] = "Failed to create test folder"
+                    return jsonify(result), 500
+            except Exception as e:
+                result["diagnostics"].append(f"Error creating test folder: {str(e)}")
+                result["error"] = f"Folder creation error: {str(e)}"
+                return jsonify(result), 500
+        
+        # Otherwise, just ensure the main folders exist
+        else:
+            result["diagnostics"].append(f"Ensuring main backup folder structure...")
+            try:
+                folders_created = dropbox_sync.ensure_dropbox_folders(dbx, debug=debug)
+                if folders_created:
+                    result["diagnostics"].append(f"Successfully created/verified main folder structure")
+                    result["details"]["folders_created"] = True
+                else:
+                    result["diagnostics"].append(f"Failed to create/verify main folder structure")
+                    result["details"]["folders_created"] = False
+                    result["error"] = "Failed to create main folders"
+                    return jsonify(result), 500
+            except Exception as e:
+                result["diagnostics"].append(f"Error ensuring folders: {str(e)}")
+                result["error"] = f"Folder structure error: {str(e)}"
+                return jsonify(result), 500
+        
+        # Step 4: List the contents of the backup folder
+        result["diagnostics"].append(f"Listing contents of backup folder...")
+        try:
+            folder_content = dropbox_sync.list_dropbox_files(dbx, dropbox_sync.DROPBOX_BACKUP_FOLDER)
+            folders = [f.name for f in folder_content if isinstance(f, dropbox.files.FolderMetadata)]
+            files = [f.name for f in folder_content if isinstance(f, dropbox.files.FileMetadata)]
+            
+            result["details"]["backup_folder_contents"] = {
+                "folders": folders,
+                "files": files,
+                "total_items": len(folder_content)
+            }
+            
+            result["diagnostics"].append(f"Found {len(folders)} folders and {len(files)} files in backup folder")
+        except Exception as e:
+            result["diagnostics"].append(f"Error listing backup folder: {str(e)}")
+            # This is just diagnostic info, so continue even if it fails
+        
+        # All tests passed
+        result["success"] = True
+        result["diagnostics"].append("All tests passed. Dropbox integration is working properly.")
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        result["diagnostics"].append(f"Unexpected error: {str(e)}")
+        result["error"] = f"Test failed: {str(e)}"
+        return jsonify(result), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
