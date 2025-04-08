@@ -525,14 +525,16 @@ def backup_all_data():
         logger.error(f"Error during backup: {str(e)}")
         return 0
 
-def backup_specific_file(sender, submission_id, debug=False):
+def backup_specific_file(sender, submission_id, debug=False, max_retries=3, verify_upload=True):
     """
-    Backup a specific webhook submission to Dropbox.
+    Backup a specific webhook submission to Dropbox with retry and verification.
     
     Args:
         sender (str): The sender's directory name
         submission_id (str): The submission ID (filename without .json)
         debug (bool): If True, enables verbose debug logging
+        max_retries (int): Maximum number of retry attempts for failed uploads
+        verify_upload (bool): Whether to verify the uploaded file in Dropbox
     
     Returns:
         dict: A dictionary with success status and detailed information
@@ -540,14 +542,18 @@ def backup_specific_file(sender, submission_id, debug=False):
                 'success': bool,       # Whether backup was successful
                 'error': str or None,  # Error message if any
                 'details': dict,       # Additional details about the operation
-                'path': str            # Dropbox path where file was saved
+                'path': str,           # Dropbox path where file was saved
+                'verified': bool,      # Whether the upload was verified in Dropbox
+                'retries': int         # Number of retries performed
             }
     """
     result = {
         'success': False,
         'error': None,
         'details': {},
-        'path': None
+        'path': None,
+        'verified': False,
+        'retries': 0
     }
     
     if debug:
@@ -564,6 +570,19 @@ def backup_specific_file(sender, submission_id, debug=False):
     
     result['details']['file_exists'] = True
     result['details']['file_size'] = os.path.getsize(local_file_path)
+    
+    # Calculate file hash for verification
+    if verify_upload:
+        try:
+            import hashlib
+            with open(local_file_path, 'rb') as f:
+                file_hash = hashlib.md5(f.read()).hexdigest()
+                result['details']['local_file_hash'] = file_hash
+                if debug:
+                    logger.info(f"Local file hash: {file_hash}")
+        except Exception as e:
+            if debug:
+                logger.warning(f"Could not calculate file hash for verification: {str(e)}")
     
     try:
         # Get Dropbox client with debug mode if requested
@@ -586,7 +605,7 @@ def backup_specific_file(sender, submission_id, debug=False):
             logger.info("Ensuring Dropbox folder structure")
             
         try:
-            folders_created = ensure_dropbox_folders(dbx)
+            folders_created = ensure_dropbox_folders(dbx, debug=debug)
             result['details']['folders_created'] = folders_created
             
             if not folders_created:
@@ -607,16 +626,19 @@ def backup_specific_file(sender, submission_id, debug=False):
             logger.info(f"Checking for sender folder: {dropbox_sender_path}")
             
         try:
-            try:
-                dbx.files_get_metadata(dropbox_sender_path)
-                if debug:
-                    logger.info(f"Sender folder exists: {dropbox_sender_path}")
-                result['details']['sender_folder_exists'] = True
-            except ApiError:
-                if debug:
-                    logger.info(f"Creating sender folder: {dropbox_sender_path}")
-                dbx.files_create_folder_v2(dropbox_sender_path)
-                result['details']['sender_folder_created'] = True
+            # Use the create_dropbox_path function for more reliable folder creation
+            path_created = create_dropbox_path(dbx, dropbox_sender_path, debug=debug)
+            if not path_created:
+                error_msg = f"Failed to create sender folder path: {dropbox_sender_path}"
+                logger.error(error_msg)
+                result['error'] = error_msg
+                result['details']['sender_folder_created'] = False
+                return result
+            
+            result['details']['sender_folder_created'] = True
+            if debug:
+                logger.info(f"Sender folder path created/verified: {dropbox_sender_path}")
+                
         except Exception as e:
             error_msg = f"Error managing sender folder: {str(e)}"
             logger.error(error_msg)
@@ -624,53 +646,147 @@ def backup_specific_file(sender, submission_id, debug=False):
             result['details']['sender_folder_error'] = str(e)
             return result
         
-        # Backup the file
+        # Backup the file with retries
         dropbox_file_path = f"{dropbox_sender_path}/{submission_id}.json"
         result['path'] = dropbox_file_path
         
-        if debug:
-            logger.info(f"Uploading file to: {dropbox_file_path}")
-        
+        # Check if the file already exists in Dropbox
+        file_exists_in_dropbox = False
         try:
-            # First check if the file already exists in Dropbox
+            existing_file = dbx.files_get_metadata(dropbox_file_path)
+            file_exists_in_dropbox = True
+            if debug:
+                logger.info(f"File already exists in Dropbox: {dropbox_file_path}")
+            result['details']['file_existed'] = True
+        except ApiError:
+            if debug:
+                logger.info(f"File does not exist yet in Dropbox: {dropbox_file_path}")
+            result['details']['file_existed'] = False
+        
+        # Upload with retries
+        retry_count = 0
+        upload_success = False
+        upload_error = None
+        upload_result = None
+        
+        while not upload_success and retry_count <= max_retries:
             try:
-                existing_file = dbx.files_get_metadata(dropbox_file_path)
+                if retry_count > 0:
+                    logger.info(f"Retry attempt {retry_count} of {max_retries} for {dropbox_file_path}")
+                
                 if debug:
-                    logger.info(f"File already exists in Dropbox: {dropbox_file_path}")
-                result['details']['file_existed'] = True
-            except ApiError:
-                if debug:
-                    logger.info(f"File does not exist yet in Dropbox: {dropbox_file_path}")
-                result['details']['file_existed'] = False
-            
-            # Upload the file
-            with open(local_file_path, 'rb') as f:
-                file_content = f.read()  # Read once and store in memory
-                file_size = len(file_content)
+                    logger.info(f"Uploading file to: {dropbox_file_path}")
+                
+                # Read the file content once and store in memory
+                with open(local_file_path, 'rb') as f:
+                    file_content = f.read()
+                    file_size = len(file_content)
                 
                 if debug:
                     logger.info(f"Uploading {file_size} bytes")
                 
+                # Upload the file
                 upload_result = dbx.files_upload(
                     file_content, 
                     dropbox_file_path, 
                     mode=WriteMode.overwrite
                 )
                 
+                upload_success = True
                 if debug:
                     logger.info(f"Upload successful: {upload_result.path_display}")
                 
-                result['success'] = True
-                result['details']['upload_complete'] = True
-                return result
+            except Exception as e:
+                retry_count += 1
+                upload_error = str(e)
+                logger.warning(f"Upload attempt {retry_count} failed: {upload_error}")
                 
-        except Exception as e:
-            error_msg = f"Error uploading file: {str(e)}"
+                # Wait a bit before retrying (exponential backoff)
+                if retry_count <= max_retries:
+                    retry_delay = min(2 ** retry_count, 30)  # max 30 seconds
+                    if debug:
+                        logger.info(f"Waiting {retry_delay} seconds before retry...")
+                    time.sleep(retry_delay)
+        
+        result['retries'] = retry_count
+        
+        if not upload_success:
+            error_msg = f"Failed to upload file after {max_retries} retries: {upload_error}"
             logger.error(error_msg)
             result['error'] = error_msg
-            result['details']['upload_error'] = str(e)
+            result['details']['upload_error'] = upload_error
             return result
-    
+        
+        # Verify the upload if requested
+        if verify_upload:
+            try:
+                if debug:
+                    logger.info(f"Verifying uploaded file: {dropbox_file_path}")
+                
+                # Get the metadata of the uploaded file
+                metadata = dbx.files_get_metadata(dropbox_file_path)
+                result['details']['dropbox_file_size'] = metadata.size
+                
+                # Download the file to verify content
+                _, response = dbx.files_download(dropbox_file_path)
+                dropbox_content = response.content
+                
+                # Calculate hash for the downloaded content
+                dropbox_hash = hashlib.md5(dropbox_content).hexdigest()
+                result['details']['dropbox_file_hash'] = dropbox_hash
+                
+                # Compare file sizes and hashes
+                if len(dropbox_content) == result['details']['file_size'] and dropbox_hash == result['details']['local_file_hash']:
+                    result['verified'] = True
+                    if debug:
+                        logger.info("File verification successful - content matches")
+                else:
+                    result['verified'] = False
+                    if debug:
+                        logger.warning("File verification failed - content does not match")
+                        logger.warning(f"Local size: {result['details']['file_size']}, Dropbox size: {len(dropbox_content)}")
+                        logger.warning(f"Local hash: {result['details']['local_file_hash']}, Dropbox hash: {dropbox_hash}")
+            
+            except Exception as e:
+                if debug:
+                    logger.warning(f"Could not verify uploaded file: {str(e)}")
+                result['details']['verification_error'] = str(e)
+        
+        # Mark operation as successful
+        result['success'] = True
+        result['details']['upload_complete'] = True
+        
+        # Add a sync status entry to the file to indicate it's been backed up
+        try:
+            # Read the existing file
+            with open(local_file_path, 'r') as f:
+                file_data = json.load(f)
+            
+            # Add sync metadata if it doesn't exist
+            if '_sync' not in file_data:
+                file_data['_sync'] = {}
+            
+            # Update sync info
+            file_data['_sync']['dropbox'] = {
+                'timestamp': datetime.datetime.now().isoformat(),
+                'path': dropbox_file_path,
+                'verified': result['verified'],
+                'retries': retry_count
+            }
+            
+            # Write back with sync info
+            with open(local_file_path, 'w') as f:
+                json.dump(file_data, f, indent=2)
+                
+            if debug:
+                logger.info("Updated local file with sync status metadata")
+                
+        except Exception as e:
+            if debug:
+                logger.warning(f"Could not update sync status in local file: {str(e)}")
+        
+        return result
+                
     except Exception as e:
         error_msg = f"Unexpected error backing up file: {str(e)}"
         logger.error(error_msg)

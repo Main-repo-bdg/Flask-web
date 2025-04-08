@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+
+{% block title %}Webhook Data Received{% endblock %}
+
+{% block content %}
+<div class="container my-5">
+    <div class="card shadow-sm">
+        <div class="card-header bg-success text-white">
+            <h4 class="mb-0">
+                <i class="fas fa-check-circle me-2"></i>Data Received Successfully
+            </h4>
+        </div>
+        <div class="card-body p-4">
+            <div class="alert alert-light border">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <strong>Submission ID:</strong> 
+                            <span class="badge bg-primary">{{ result.id }}</span>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <strong>Sender:</strong> {{ sender }}
+                        </div>
+                        
+                        <div>
+                            <strong>File Saved:</strong>
+                            {% if result.file_saved %}
+                            <span class="text-success"><i class="fas fa-check me-1"></i>Yes</span>
+                            {% else %}
+                            <span class="text-danger"><i class="fas fa-times me-1"></i>No</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6 text-md-end">
+                        <a href="{{ result.url }}" class="btn btn-primary">
+                            <i class="fas fa-eye me-1"></i>View Submission
+                        </a>
+                    </div>
+                </div>
+            </div>
+            
+            {% if result.dropbox_backup %}
+            <div class="mt-4">
+                <h5>Dropbox Backup Status</h5>
+                
+                {% if result.dropbox_backup.success %}
+                <div class="alert alert-success">
+                    <div class="d-flex align-items-center">
+                        <div class="me-3">
+                            <i class="fas fa-cloud-upload-alt fa-2x"></i>
+                        </div>
+                        <div>
+                            <strong>Successfully backed up to Dropbox</strong>
+                            <div class="small">
+                                Path: {{ result.dropbox_backup.path }}
+                                
+                                {% if result.dropbox_backup.verification == "passed" %}
+                                <span class="badge bg-success ms-2">
+                                    <i class="fas fa-shield-alt me-1"></i>Verified
+                                </span>
+                                {% endif %}
+                                
+                                {% if result.dropbox_backup.retries > 0 %}
+                                <span class="badge bg-warning ms-2">
+                                    Retries: {{ result.dropbox_backup.retries }}
+                                </span>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% else %}
+                <div class="alert alert-warning">
+                    <div class="d-flex align-items-center">
+                        <div class="me-3">
+                            <i class="fas fa-exclamation-triangle fa-2x"></i>
+                        </div>
+                        <div>
+                            <strong>Could not back up to Dropbox</strong>
+                            <div>{{ result.dropbox_backup.error }}</div>
+                            
+                            {% if result.dropbox_backup.queued_for_retry %}
+                            <div class="mt-2">
+                                <span class="badge bg-info">
+                                    <i class="fas fa-clock me-1"></i>Queued for retry
+                                </span>
+                                <small class="ms-1">This file will be synced during the next scheduled backup.</small>
+                            </div>
+                            {% endif %}
+                            
+                            {% if result.dropbox_backup.suggestion %}
+                            <div class="mt-2">
+                                <i class="fas fa-lightbulb me-1 text-warning"></i>
+                                <small>{{ result.dropbox_backup.suggestion }}</small>
+                            </div>
+                            {% endif %}
+                            
+                            {% if result.dropbox_backup.enable_instructions %}
+                            <div class="mt-2">
+                                <i class="fas fa-info-circle me-1"></i>
+                                <small>{{ result.dropbox_backup.enable_instructions }}</small>
+                            </div>
+                            {% endif %}
+                            
+                            {% if result.dropbox_backup.fix_instructions %}
+                            <div class="mt-2">
+                                <i class="fas fa-wrench me-1"></i>
+                                <small>{{ result.dropbox_backup.fix_instructions }}</small>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+                
+                {% if result.dropbox_backup.details %}
+                <div class="card mt-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span>Backup Details</span>
+                        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#detailsCollapse">
+                            <i class="fas fa-code me-1"></i>Show/Hide
+                        </button>
+                    </div>
+                    <div class="collapse" id="detailsCollapse">
+                        <div class="card-body">
+                            <pre class="bg-light p-3 mb-0"><code>{{ result.dropbox_backup.details | tojson(indent=2) }}</code></pre>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+            {% endif %}
+            
+            <div class="mt-4 text-center">
+                <a href="{{ url_for('get_sync_status', format='html') }}" class="btn btn-outline-primary me-2">
+                    <i class="fas fa-sync me-1"></i>View Sync Status
+                </a>
+                <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">
+                    <i class="fas fa-home me-1"></i>Back to Home
+                </a>
+            </div>
+        </div>
+    </div>
+    
+    <div class="card mt-4">
+        <div class="card-header">
+            <h5 class="mb-0">Raw Response</h5>
+        </div>
+        <div class="card-body">
+            <pre class="bg-light p-3 mb-0"><code>{{ result | tojson(indent=2) }}</code></pre>
+        </div>
+    </div>
+    
+    <div class="text-center mt-4">
+        <p class="text-muted">
+            <i class="fas fa-code me-1"></i>
+            To programmatically access this webhook, use the endpoint:
+            <code>POST {{ request.url_root }}api/webhook</code>
+        </p>
+    </div>
+</div>
+{% endblock %}

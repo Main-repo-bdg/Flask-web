@@ -2,6 +2,7 @@ import os
 import json
 import datetime
 import logging
+import threading
 from flask import Flask, request, render_template, redirect, url_for, jsonify
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
@@ -130,8 +131,10 @@ def webhook():
     
     data = request.json
     
-    # Check for debug mode flag in the request
+    # Check for debug mode and sync options in the request
     debug_mode = data.get('debug_dropbox', False)
+    verify_upload = data.get('verify_upload', True)
+    max_retries = int(data.get('max_retries', 3))
     
     # Extract sender from data or use IP address
     sender = data.get('sender', request.remote_addr)
@@ -161,32 +164,7 @@ def webhook():
     
     logger.info(f"Saved submission {submission_id} for sender {sender}")
     
-    # Automatically backup to Dropbox if enabled
-    backup_result = None
-    if ENABLE_AUTO_BACKUP and DROPBOX_SYNC_AVAILABLE:
-        try:
-            logger.info(f"Auto-backing up submission {submission_id} to Dropbox (debug={debug_mode})")
-            
-            # Use the enhanced backup function with debug mode
-            backup_result = dropbox_sync.backup_specific_file(sender, submission_id, debug=debug_mode)
-            
-            if backup_result['success']:
-                logger.info(f"Successfully backed up submission {submission_id} to Dropbox at path: {backup_result['path']}")
-            else:
-                logger.warning(f"Failed to back up submission {submission_id} to Dropbox: {backup_result['error']}")
-                
-            # Log detailed diagnostics if in debug mode
-            if debug_mode and 'details' in backup_result:
-                logger.info(f"Dropbox backup details: {json.dumps(backup_result['details'])}")
-                
-        except Exception as e:
-            logger.error(f"Error backing up to Dropbox: {str(e)}")
-            backup_result = {
-                'success': False,
-                'error': str(e),
-                'details': {'exception': str(e)}
-            }
-    
+    # Prepare the response
     response = {
         "success": True,
         "id": submission_id,
@@ -194,24 +172,133 @@ def webhook():
         "file_saved": os.path.exists(file_path)
     }
     
-    # Add backup status to response if backup was attempted
-    if backup_result is not None:
-        response["dropbox_backup"] = backup_result
+    # Immediately and reliably backup to Dropbox if enabled
+    if ENABLE_AUTO_BACKUP and DROPBOX_SYNC_AVAILABLE:
+        try:
+            logger.info(f"Auto-backing up submission {submission_id} to Dropbox (debug={debug_mode})")
+            
+            # Use the enhanced backup function with retries and verification
+            backup_result = dropbox_sync.backup_specific_file(
+                sender=sender, 
+                submission_id=submission_id, 
+                debug=debug_mode,
+                verify_upload=verify_upload,
+                max_retries=max_retries
+            )
+            
+            # Add detailed backup status to response
+            response["dropbox_backup"] = backup_result
+            
+            if backup_result['success']:
+                logger.info(f"Successfully backed up submission {submission_id} to Dropbox at path: {backup_result['path']}")
+                
+                # Add verification info to response if available
+                if backup_result.get('verified'):
+                    response["dropbox_backup"]["verification"] = "passed"
+                    logger.info(f"Verification passed for submission {submission_id}")
+                
+                # If using the sync_worker module, update sync statistics
+                try:
+                    import sync_worker
+                    status = sync_worker.get_sync_status()
+                    status["files_synced"] += 1
+                    sync_worker.update_sync_status(status)
+                except (ImportError, Exception) as e:
+                    logger.debug(f"Could not update sync statistics: {str(e)}")
+            else:
+                logger.warning(f"Failed to back up submission {submission_id} to Dropbox: {backup_result['error']}")
+                
+                # If max retries were exceeded, suggest manual sync
+                if backup_result.get('retries', 0) >= max_retries:
+                    response["dropbox_backup"]["suggestion"] = "Try manual sync later via /api/dropbox/sync"
+                
+            # Log detailed diagnostics if in debug mode
+            if debug_mode and 'details' in backup_result:
+                logger.info(f"Dropbox backup details: {json.dumps(backup_result['details'])}")
+                
+        except Exception as e:
+            logger.error(f"Error backing up to Dropbox: {str(e)}")
+            response["dropbox_backup"] = {
+                'success': False,
+                'error': str(e),
+                'details': {'exception': str(e)}
+            }
+            
+            # Attempt to queue this file for later sync if sync_worker is available
+            try:
+                import sync_worker
+                logger.info(f"Queuing failed upload for later sync: {sender}/{submission_id}")
+                # Record the error in sync status
+                status = sync_worker.get_sync_status()
+                if "pending_sync" not in status:
+                    status["pending_sync"] = []
+                status["pending_sync"].append({
+                    "sender": sender,
+                    "submission_id": submission_id,
+                    "timestamp": datetime.datetime.now().isoformat(),
+                    "error": str(e)
+                })
+                sync_worker.update_sync_status(status)
+                response["dropbox_backup"]["queued_for_retry"] = True
+            except ImportError:
+                logger.debug("sync_worker not available for retry queuing")
+    else:
+        # If Dropbox backup is disabled, note this in the response
+        if not ENABLE_AUTO_BACKUP:
+            response["dropbox_backup"] = {
+                "success": False,
+                "error": "Auto-backup to Dropbox is disabled",
+                "enable_instructions": "Set ENABLE_AUTO_BACKUP=True in .env file"
+            }
+        elif not DROPBOX_SYNC_AVAILABLE:
+            response["dropbox_backup"] = {
+                "success": False,
+                "error": "Dropbox sync module is not available",
+                "fix_instructions": "Install required packages: pip install -r requirements.txt"
+            }
     
+    # Check if HTML format is requested (rare for webhook but possible)
+    best_format = request.accept_mimetypes.best_match(['application/json', 'text/html'])
+    if best_format == 'text/html' or request.args.get('format') == 'html':
+        return render_template('webhook_result.html', 
+                              result=response, 
+                              sender=sender,
+                              submission_id=submission_id)
+    
+    # Otherwise return JSON (common for webhooks)
     return jsonify(response)
 
 @app.route('/api/data')
 def list_senders_api():
     """API endpoint to list all senders"""
     senders = get_sender_dirs()
-    return jsonify({"senders": senders})
+    data = {"senders": senders}
+    
+    # Check if HTML format is requested
+    best_format = request.accept_mimetypes.best_match(['application/json', 'text/html'])
+    if best_format == 'text/html' or request.args.get('format') == 'html':
+        return render_template('api_view.html', 
+                              data=data, 
+                              endpoint="senders")
+    # Otherwise return JSON
+    return jsonify(data)
 
 @app.route('/api/data/<sender>')
 def list_submissions_api(sender):
     """API endpoint to list all submissions for a sender"""
     sender = secure_filename(sender)
     submissions = get_sender_submissions(sender)
-    return jsonify({"sender": sender, "submissions": submissions})
+    data = {"sender": sender, "submissions": submissions}
+    
+    # Check if HTML format is requested
+    best_format = request.accept_mimetypes.best_match(['application/json', 'text/html'])
+    if best_format == 'text/html' or request.args.get('format') == 'html':
+        return render_template('api_view.html', 
+                              data=data, 
+                              sender=sender,
+                              endpoint="sender_submissions")
+    # Otherwise return JSON
+    return jsonify(data)
 
 @app.route('/api/data/<sender>/<submission_id>')
 def get_submission_api(sender, submission_id):
@@ -220,7 +307,122 @@ def get_submission_api(sender, submission_id):
     data = get_submission_data(sender, submission_id)
     if data is None:
         return jsonify({"error": "Submission not found"}), 404
+    
+    # Check if the client is requesting HTML (browser) or JSON (API)
+    best_format = request.accept_mimetypes.best_match(['application/json', 'text/html'])
+    if best_format == 'text/html' or request.args.get('format') == 'html':
+        # If HTML is requested, display with nice UI
+        return render_template('api_view.html', 
+                              data=data, 
+                              sender=sender, 
+                              submission_id=submission_id,
+                              endpoint="submission")
+    # Otherwise return JSON
     return jsonify(data)
+
+@app.route('/api/dropbox/sync', methods=['GET', 'POST'])
+def sync_data():
+    """
+    Trigger a manual synchronization with Dropbox.
+    This endpoint allows you to run an immediate sync job.
+    
+    Query parameters:
+    - direction: "both", "to_dropbox", or "from_dropbox" (default: "both")
+    - force: "true" or "false" - whether to force sync all files (default: false)
+    - verify: "true" or "false" - whether to verify uploads/downloads (default: true)
+    - format: "html" or "json" - response format (default based on Accept header)
+    """
+    try:
+        # Import the sync worker
+        import sync_worker
+    except ImportError:
+        error = {"error": "Sync worker module not available"}
+        return jsonify(error), 500
+    
+    # Get sync parameters
+    direction = request.args.get('direction', 'both')
+    if direction not in ['both', 'to_dropbox', 'from_dropbox']:
+        direction = 'both'
+        
+    force = request.args.get('force', 'false').lower() in ['true', '1', 't', 'yes']
+    verify = request.args.get('verify', 'true').lower() in ['true', '1', 't', 'yes']
+    
+    # Handle different sync directions
+    logger.info(f"Manual sync triggered: direction={direction}, force={force}, verify={verify}")
+    
+    # Run the sync in a separate thread to not block the response
+    def run_sync_job():
+        try:
+            sync_worker.run_sync(
+                direction=direction,
+                force=force,
+                verify=verify,
+                debug=True  # Always use debug for manual syncs
+            )
+        except Exception as e:
+            logger.error(f"Error in sync thread: {str(e)}")
+    
+    # Start the sync thread
+    sync_thread = threading.Thread(target=run_sync_job)
+    sync_thread.daemon = True
+    sync_thread.start()
+    
+    # Prepare response based on what was requested
+    result = {
+        "success": True,
+        "message": f"Sync job started with direction={direction}, force={force}, verify={verify}",
+        "details": {
+            "direction": direction,
+            "force": force,
+            "verify": verify
+        }
+    }
+    
+    # Check current sync status
+    try:
+        status = sync_worker.get_sync_status()
+        result["current_status"] = status
+    except Exception as e:
+        logger.error(f"Error getting sync status: {str(e)}")
+        result["current_status"] = {"error": str(e)}
+    
+    # Check if HTML format is requested
+    best_format = request.accept_mimetypes.best_match(['application/json', 'text/html'])
+    if best_format == 'text/html' or request.args.get('format') == 'html':
+        return render_template('sync_started.html', result=result)
+    
+    # Otherwise return JSON
+    return jsonify(result)
+
+@app.route('/api/dropbox/sync/status', methods=['GET'])
+def get_sync_status():
+    """
+    Get the current status of Dropbox synchronization.
+    Shows sync history, statistics, and current state.
+    """
+    try:
+        # Import the sync worker
+        import sync_worker
+    except ImportError:
+        error = {"error": "Sync worker module not available"}
+        return jsonify(error), 500
+    
+    # Get current sync status
+    try:
+        status = sync_worker.get_sync_status()
+    except Exception as e:
+        logger.error(f"Error getting sync status: {str(e)}")
+        status = {"error": str(e)}
+    
+    # Check if HTML format is requested
+    best_format = request.accept_mimetypes.best_match(['application/json', 'text/html'])
+    if best_format == 'text/html' or request.args.get('format') == 'html':
+        return render_template('api_view.html', 
+                              data=status, 
+                              endpoint="sync_status")
+    
+    # Otherwise return JSON
+    return jsonify(status)
 
 @app.route('/api/dropbox/test', methods=['GET'])
 def test_dropbox_connection():
