@@ -1,0 +1,63 @@
+/* Custom styles for the Webhook Data Viewer */
+
+/* Body and general styles */
+body {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.footer {
+    margin-top: auto;
+}
+
+/* Card hover effects */
+.card.h-100:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    transition: all 0.3s ease;
+}
+
+/* JSON viewer enhancements */
+.json-viewer {
+    overflow-x: auto;
+    line-height: 1.5;
+    word-break: break-word;
+}
+
+/* Tab navigation styles */
+.nav-tabs .nav-link {
+    color: #6c757d;
+}
+
+.nav-tabs .nav-link.active {
+    font-weight: 500;
+    color: #212529;
+}
+
+/* Table styles */
+.table th {
+    background-color: #f8f9fa;
+}
+
+/* Icons in buttons */
+.btn .fas, .btn .fa {
+    width: 16px;
+    text-align: center;
+}
+
+/* Alert styling */
+.alert-info {
+    border-left: 4px solid #0d6efd;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .card-header-tabs {
+        flex-wrap: wrap;
+    }
+    
+    .btn-sm {
+        margin-bottom: 5px;
+    }
+}
