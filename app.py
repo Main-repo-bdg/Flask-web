@@ -1,8 +1,31 @@
 import os
 import json
 import datetime
+import logging
 from flask import Flask, request, render_template, redirect, url_for, jsonify
 from werkzeug.utils import secure_filename
+from dotenv import load_dotenv
+
+# Import Dropbox sync module (if available)
+try:
+    import dropbox_sync
+    DROPBOX_SYNC_AVAILABLE = True
+except ImportError:
+    DROPBOX_SYNC_AVAILABLE = False
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("app.log"),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger("webhook-app")
+
+# Load environment variables from .env file if present
+load_dotenv()
 
 app = Flask(__name__)
 
@@ -10,6 +33,9 @@ app = Flask(__name__)
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
+
+# Check if auto backup is enabled
+ENABLE_AUTO_BACKUP = os.getenv('ENABLE_AUTO_BACKUP', 'False').lower() in ('true', '1', 't')
 
 def get_sender_dirs():
     """Get a list of all sender directories"""
@@ -129,11 +155,32 @@ def webhook():
     with open(file_path, 'w') as f:
         json.dump(data_to_store, f, indent=2)
     
-    return jsonify({
+    # Automatically backup to Dropbox if enabled
+    backup_status = None
+    if ENABLE_AUTO_BACKUP and DROPBOX_SYNC_AVAILABLE:
+        try:
+            logger.info(f"Auto-backing up submission {submission_id} to Dropbox")
+            backup_success = dropbox_sync.backup_specific_file(sender, submission_id)
+            backup_status = "success" if backup_success else "failed"
+            if backup_success:
+                logger.info(f"Successfully backed up submission {submission_id} to Dropbox")
+            else:
+                logger.warning(f"Failed to back up submission {submission_id} to Dropbox")
+        except Exception as e:
+            backup_status = "error"
+            logger.error(f"Error backing up to Dropbox: {str(e)}")
+    
+    response = {
         "success": True,
         "id": submission_id,
         "url": url_for('view_submission', sender=sender, submission_id=submission_id, _external=True)
-    })
+    }
+    
+    # Add backup status to response if backup was attempted
+    if backup_status:
+        response["backup_status"] = backup_status
+    
+    return jsonify(response)
 
 @app.route('/api/data')
 def list_senders_api():
