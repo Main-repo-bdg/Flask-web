@@ -21,6 +21,11 @@
                     <i class="fas fa-code me-1"></i>API
                 </button>
             </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="sync-tab" data-bs-toggle="tab" data-bs-target="#sync" type="button" role="tab" aria-controls="sync" aria-selected="false">
+                    <i class="fas fa-sync me-1"></i>Dropbox Sync
+                </button>
+            </li>
         </ul>
     </div>
     <div class="card-body">
@@ -84,12 +89,15 @@
                         <p class="card-text">
                             To send data to this application, make a POST request to the webhook endpoint:
                         </p>
-                        <div class="alert alert-secondary">
+                        <div class="alert alert-secondary api-path">
                             <code>POST /api/webhook</code>
+                            <button type="button" class="btn btn-sm btn-outline-secondary copy-btn float-end" id="copyEndpointBtn">
+                                <i class="fas fa-copy me-1"></i>Copy
+                            </button>
                         </div>
                         
                         <h6 class="mt-4">Example Request:</h6>
-<pre class="bg-dark text-light p-3">
+<pre class="bg-dark text-light p-3" id="example-curl">
 curl -X POST \
   -H "Content-Type: application/json" \
   -d '{
@@ -102,17 +110,82 @@ curl -X POST \
   }' \
   {{ request.url_root }}api/webhook
 </pre>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="copyCurlBtn">
+                            <i class="fas fa-copy me-1"></i>Copy cURL Command
+                        </button>
 
                         <h6 class="mt-4">Available API Endpoints:</h6>
                         <ul>
                             <li><code>GET /api/data</code> - List all senders</li>
                             <li><code>GET /api/data/&lt;sender&gt;</code> - List all submissions for a sender</li>
                             <li><code>GET /api/data/&lt;sender&gt;/&lt;submission_id&gt;</code> - Get a specific submission</li>
+                            <li><code>POST /api/dropbox/sync</code> - Trigger a manual Dropbox sync</li>
+                            <li><code>GET /api/dropbox/sync/status</code> - View Dropbox sync status</li>
                         </ul>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="tab-pane fade" id="sync" role="tabpanel" aria-labelledby="sync-tab">
+                <h2>Dropbox Synchronization</h2>
+                
+                <div class="alert alert-info mb-4">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Dropbox Integration:</strong> 
+                    This application uses Dropbox as the primary storage for webhook data. 
+                    All data is first saved to Dropbox, then synced to local storage.
+                </div>
+                
+                {% include 'components/sync_card.html' %}
+                
+                <div class="card bg-light mt-4">
+                    <div class="card-body">
+                        <h5 class="card-title">About Dropbox Integration</h5>
+                        <p class="card-text">
+                            When you send data to the webhook endpoint, it follows this flow:
+                        </p>
+                        <ol>
+                            <li><strong>Save to Dropbox:</strong> Data is saved directly to Dropbox as the primary storage</li>
+                            <li><strong>Sync to Local:</strong> The data is then downloaded and cached locally for quick access</li>
+                            <li><strong>Verification:</strong> File integrity is verified to ensure data consistency</li>
+                        </ol>
+                        
+                        <h6 class="mt-4">Benefits:</h6>
+                        <ul>
+                            <li><strong>Data Security:</strong> Your data is backed up in Dropbox immediately</li>
+                            <li><strong>Accessibility:</strong> Access your webhook data from anywhere via Dropbox</li>
+                            <li><strong>Reliability:</strong> Even if local storage fails, data is preserved in Dropbox</li>
+                            <li><strong>Offline Access:</strong> Local cache ensures data is available even without internet</li>
+                        </ul>
+                        
+                        <div class="alert alert-warning mt-4">
+                            <i class="fas fa-exclamation-triangle me-2"></i>
+                            <strong>Note:</strong> If Dropbox is unavailable, the webhook endpoint will fall back to local storage and queue files for later synchronization.
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Set up the copy buttons in the API tab
+    const copyEndpointBtn = document.getElementById('copyEndpointBtn');
+    if (copyEndpointBtn) {
+        copyEndpointBtn.addEventListener('click', function() {
+            copyToClipboard('POST {{ request.url_root }}api/webhook');
+        });
+    }
+    
+    const copyCurlBtn = document.getElementById('copyCurlBtn');
+    if (copyCurlBtn) {
+        copyCurlBtn.addEventListener('click', function() {
+            const curlText = document.getElementById('example-curl').textContent;
+            copyToClipboard(curlText);
+        });
+    }
+});
+</script>
 {% endblock %}
