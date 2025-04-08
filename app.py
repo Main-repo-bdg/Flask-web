@@ -8,6 +8,13 @@ from flask import Flask, Blueprint, request, render_template, redirect, url_for,
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 
+# Import dropbox for type checking
+try:
+    import dropbox
+    DROPBOX_MODULE_AVAILABLE = True
+except ImportError:
+    DROPBOX_MODULE_AVAILABLE = False
+
 # Import Dropbox sync module (if available)
 try:
     import dropbox_sync
@@ -114,8 +121,8 @@ def get_sender_submissions(sender):
                 
                 # Process each file
                 for file in folder_content:
-                    if (isinstance(file, dropbox.files.FileMetadata) and 
-                        file.name.endswith('.json')):
+                    # Check if the file is a FileMetadata object without directly using the dropbox module
+                    if hasattr(file, 'name') and getattr(file, 'is_downloadable', True) and file.name.endswith('.json'):
                         
                         submission_id = file.name.replace('.json', '')
                         

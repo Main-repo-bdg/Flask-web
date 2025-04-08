@@ -432,6 +432,33 @@ def create_dropbox_path(dbx, path, debug=False):
                 
     return True
 
+def list_dropbox_files(dbx, path, debug=False):
+    """
+    List files and folders in a Dropbox folder.
+    
+    Args:
+        dbx: Dropbox client instance
+        path (str): The Dropbox path to list
+        debug (bool): If True, enables verbose debug logging
+        
+    Returns:
+        list: A list of Dropbox file and folder metadata objects
+    """
+    if debug:
+        logger.info(f"Listing files in Dropbox folder: {path}")
+    
+    try:
+        result = dbx.files_list_folder(path)
+        entries = result.entries
+        
+        if debug:
+            logger.info(f"Found {len(entries)} entries in {path}")
+        
+        return entries
+    except Exception as e:
+        logger.error(f"Error listing files in Dropbox folder {path}: {str(e)}")
+        raise
+
 def backup_file(dbx, local_path, dropbox_path):
     """
     Upload a single file to Dropbox.
