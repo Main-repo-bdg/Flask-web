@@ -1,0 +1,81 @@
+@app.route('/api/keep-alive/test', methods=['GET', 'POST'])
+def test_keep_alive():
+    """
+    Test endpoint to manually verify the keep-alive service.
+    This runs the initialization process again and returns detailed results.
+    """
+    try:
+        # Import the keep_alive module
+        try:
+            import keep_alive
+            has_module = True
+        except ImportError:
+            has_module = False
+        
+        # Get current status if available
+        current_status = None
+        if has_module:
+            try:
+                current_status = keep_alive.get_keep_alive_status()
+            except:
+                pass
+        
+        # Run the initialization process to ensure it's running
+        # Force environment variables for testing
+        os.environ['KEEP_ALIVE_ENABLED'] = 'true'
+        os.environ['FORCE_KEEP_ALIVE'] = 'true'
+        
+        # Make sure we have a test URL
+        if not os.environ.get('APP_URL') and not os.environ.get('RENDER_EXTERNAL_URL'):
+            hostname = request.host.split(':')[0]
+            port = request.host.split(':')[1] if ':' in request.host else '5000'
+            test_url = f"http://{hostname}:{port}"
+            os.environ['APP_URL'] = test_url
+        
+        # Run the full initialization
+        init_result = init_keep_alive_service(app=current_app)
+        
+        # Prepare comprehensive result
+        result = {
+            "has_module": has_module,
+            "current_status": current_status,
+            "init_result": init_result,
+            "environment": {
+                "KEEP_ALIVE_ENABLED": os.environ.get('KEEP_ALIVE_ENABLED'),
+                "FORCE_KEEP_ALIVE": os.environ.get('FORCE_KEEP_ALIVE'),
+                "APP_URL": os.environ.get('APP_URL'),
+                "RENDER_EXTERNAL_URL": os.environ.get('RENDER_EXTERNAL_URL'),
+                "RENDER": os.environ.get('RENDER'),
+                "HOST": os.environ.get('HOST'),
+                "PORT": os.environ.get('PORT')
+            },
+            "app_info": {
+                "has_keep_alive_init_status": hasattr(current_app, 'keep_alive_init_status'),
+                "has_keep_alive_init_started": hasattr(current_app, 'keep_alive_init_started'),
+                "has_keep_alive_init_completed": hasattr(current_app, 'keep_alive_init_completed')
+            }
+        }
+        
+        # If we still don't have the module, suggest checks
+        if not has_module:
+            result["suggestions"] = [
+                "Check that keep_alive.py exists in the application directory",
+                "Verify keep_alive.py has no syntax errors",
+                "Ensure the file has proper permissions",
+                "Check for ImportError details in the application logs"
+            ]
+            
+        # If HTML format is requested
+        best_format = request.accept_mimetypes.best_match(['application/json', 'text/html'])
+        if best_format == 'text/html' or request.args.get('format') == 'html':
+            return render_template('keep_alive_test.html', result=result)
+            
+        return jsonify(result)
+        
+    except Exception as e:
+        error_result = {
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
+        return jsonify(error_result), 500

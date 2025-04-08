@@ -3,15 +3,33 @@
 {% block title %}Keep-Alive Service Status{% endblock %}
 
 {% block content %}
-<div class="container mt-4">
+<div class="container mt-4" id="keepAliveStatus">
     <div class="card shadow-sm">
-        <div class="card-header {% if status.running %}bg-success{% else %}bg-danger{% endif %} text-white">
-            <h4 class="mb-0">
-                <i class="fas fa-{% if status.running %}heartbeat{% else %}heart-broken{% endif %} me-2"></i>
-                Keep-Alive Service Status
-            </h4>
+        <div class="card-header status-header {% if status.running %}bg-success{% else %}bg-danger{% endif %} text-white">
+            <div class="d-flex justify-content-between align-items-center">
+                <h4 class="mb-0">
+                    <i class="fas fa-{% if status.running %}heartbeat{% else %}heart-broken{% endif %} me-2"></i>
+                    Keep-Alive Service Status
+                </h4>
+                <div>
+                    <button type="button" id="refreshStatusBtn" class="btn btn-sm btn-light">
+                        <i class="fas fa-sync me-1"></i>Refresh Status
+                    </button>
+                </div>
+            </div>
         </div>
         <div class="card-body">
+            <div class="alert alert-info alert-dismissible fade show mb-3">
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                <div class="d-flex">
+                    <div class="me-2"><i class="fas fa-info-circle fs-5"></i></div>
+                    <div>
+                        <strong>Keep-Alive Service Status</strong>
+                        <p class="mb-0">This page shows real-time information about the Keep-Alive service. The status is updated automatically every 10 seconds.</p>
+                    </div>
+                </div>
+            </div>
+            
             <div class="row">
                 <div class="col-md-6">
                     <h5>Configuration</h5>
@@ -20,21 +38,17 @@
                             <tr>
                                 <th width="40%">Status</th>
                                 <td>
-                                    {% if status.running %}
-                                    <span class="badge bg-success">Running</span>
-                                    {% else %}
-                                    <span class="badge bg-danger">Stopped</span>
-                                    {% endif %}
+                                    <span id="statusBadge" class="badge {% if status.running %}bg-success{% else %}bg-danger{% endif %}">
+                                        {% if status.running %}Running{% else %}Stopped{% endif %}
+                                    </span>
                                 </td>
                             </tr>
                             <tr>
                                 <th>Enabled</th>
                                 <td>
-                                    {% if status.enabled %}
-                                    <span class="badge bg-success">Yes</span>
-                                    {% else %}
-                                    <span class="badge bg-danger">No</span>
-                                    {% endif %}
+                                    <span class="badge {% if status.enabled %}bg-success{% else %}bg-danger{% endif %}">
+                                        {% if status.enabled %}Yes{% else %}No{% endif %}
+                                    </span>
                                 </td>
                             </tr>
                             <tr>
@@ -51,7 +65,21 @@
                             </tr>
                             <tr>
                                 <th>Uptime</th>
-                                <td>{{ status.uptime_formatted }}</td>
+                                <td id="uptime">{{ status.uptime_formatted }}</td>
+                            </tr>
+                            <tr>
+                                <th>Environment</th>
+                                <td>
+                                    {% if status.environment %}
+                                        {% if status.environment.RENDER == 'true' %}
+                                            <span class="badge bg-primary">Render</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">Local</span>
+                                        {% endif %}
+                                    {% else %}
+                                        <span class="badge bg-secondary">Unknown</span>
+                                    {% endif %}
+                                </td>
                             </tr>
                         </tbody>
                     </table>
@@ -62,13 +90,13 @@
                     <div class="row g-2 mb-3">
                         <div class="col-6">
                             <div class="p-3 border rounded bg-light text-center">
-                                <h3 class="mb-0">{{ status.ping_count }}</h3>
+                                <h3 class="mb-0" id="pingCount">{{ status.ping_count }}</h3>
                                 <small class="text-muted">Total Pings</small>
                             </div>
                         </div>
                         <div class="col-6">
                             <div class="p-3 border rounded bg-light text-center">
-                                <h3 class="mb-0">{{ status.error_count }}</h3>
+                                <h3 class="mb-0" id="errorCount">{{ status.error_count }}</h3>
                                 <small class="text-muted">Errors</small>
                             </div>
                         </div>
@@ -80,36 +108,49 @@
                             {% if status.last_ping_time %}
                             <p class="mb-0 text-success">
                                 <i class="fas fa-clock me-1"></i>
-                                {{ status.last_ping_time }}
+                                <span id="lastPingTime" class="timestamp" data-time="{{ status.last_ping_time }}">
+                                    {{ status.last_ping_time }}
+                                </span>
                             </p>
                             {% else %}
-                            <p class="mb-0 text-muted">No pings recorded yet</p>
+                            <p class="mb-0 text-muted">
+                                <span id="lastPingTime">No pings recorded yet</span>
+                            </p>
                             {% endif %}
                         </div>
                     </div>
                     
-                    {% if status.stats.last_error %}
-                    <div class="card border-warning">
+                    <div id="lastErrorInfo" class="card border-warning" {% if not status.stats.last_error %}style="display: none;"{% endif %}>
                         <div class="card-body">
                             <h6 class="text-warning">Last Error</h6>
                             <p class="mb-1">
                                 <i class="fas fa-exclamation-triangle me-1"></i>
-                                {{ status.stats.last_error.time }}
+                                <span id="lastErrorTime" class="timestamp" data-time="{{ status.stats.last_error.time if status.stats and status.stats.last_error else '' }}">
+                                    {{ status.stats.last_error.time if status.stats and status.stats.last_error else 'N/A' }}
+                                </span>
                             </p>
-                            <p class="mb-0 text-truncate">{{ status.stats.last_error.message }}</p>
+                            <p id="lastErrorMessage" class="mb-0 text-truncate">
+                                {{ status.stats.last_error.message if status.stats and status.stats.last_error else '' }}
+                            </p>
                         </div>
                     </div>
-                    {% endif %}
                 </div>
             </div>
         </div>
         <div class="card-footer">
             <div class="d-flex justify-content-between">
                 <div>
-                    <a href="{{ url_for('health_check') }}" class="btn btn-outline-primary" target="_blank">
+                    <button id="testPingBtn" class="btn btn-primary">
                         <i class="fas fa-stethoscope me-1"></i>
-                        Test Health Endpoint
-                    </a>
+                        Test Ping Now
+                    </button>
+                    
+                    <button id="toggleServiceBtn" 
+                            class="btn {% if status.running %}btn-warning{% else %}btn-success{% endif %} ms-2"
+                            data-running="{{ 'true' if status.running else 'false' }}">
+                        <i class="fas {% if status.running %}fa-stop-circle{% else %}fa-play-circle{% endif %} me-1"></i>
+                        {% if status.running %}Stop Service{% else %}Start Service{% endif %}
+                    </button>
                 </div>
                 <div>
                     <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">
