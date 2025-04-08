@@ -740,6 +740,89 @@ def test_dropbox_connection():
         result["error"] = f"Test failed: {str(e)}"
         return jsonify(result), 500
 
+# Health check endpoint for the keep-alive service
+@app.route('/health')
+def health_check():
+    """Health check endpoint for the keep-alive service"""
+    # Check if this is a keep-alive request
+    is_keep_alive = request.headers.get('X-Keep-Alive') == 'true'
+    
+    # Basic health check - could be expanded to check database, Dropbox connection, etc.
+    status = {
+        "status": "healthy",
+        "timestamp": datetime.datetime.now().isoformat(),
+        "version": "1.0.0"
+    }
+    
+    # Only log non-keep-alive requests to avoid flooding the logs
+    if not is_keep_alive:
+        logger.info(f"Health check requested from {request.remote_addr}")
+    
+    return jsonify(status)
+
+# Keep-alive status endpoint
+@app.route('/keep-alive/status')
+def keep_alive_status():
+    """Endpoint to view the keep-alive service status"""
+    try:
+        import keep_alive
+        status = keep_alive.get_keep_alive_status()
+        return render_template('keep_alive_status.html', status=status)
+    except ImportError:
+        return jsonify({"error": "Keep-alive service is not available"}), 404
+
+# Initialize the keep-alive service
+def init_keep_alive_service():
+    """Initialize the keep-alive service with the application URL"""
+    if os.environ.get('RENDER') == 'true' or os.environ.get('KEEP_ALIVE_ENABLED') == 'true':
+        try:
+            import keep_alive
+            
+            # Get configuration from environment variables or use defaults
+            app_url = os.environ.get('RENDER_EXTERNAL_URL')
+            if not app_url:
+                # Try to determine the URL from the environment
+                host = os.environ.get('HOST', 'localhost')
+                port = int(os.environ.get('PORT', 5000))
+                protocol = 'https' if os.environ.get('RENDER') == 'true' else 'http'
+                app_url = f"{protocol}://{host}"
+                if port != 80 and port != 443:
+                    app_url += f":{port}"
+            
+            interval_mins = int(os.environ.get('KEEP_ALIVE_INTERVAL_MINUTES', 10))
+            
+            # Start the keep-alive service
+            keep_alive.init_keep_alive(
+                app_url=app_url,
+                interval_minutes=interval_mins,
+                endpoint='/health',
+                enabled=True
+            )
+            logger.info(f"Keep-alive service initialized with URL {app_url} and interval of {interval_mins} minutes")
+            return True
+        except ImportError:
+            logger.warning("Could not import keep_alive module. Keep-alive service not started.")
+        except Exception as e:
+            logger.error(f"Error initializing keep-alive service: {str(e)}")
+    return False
+
+# Initialize the keep-alive service when the application starts
+@app.before_first_request
+def initialize_services():
+    """Initialize services that depend on the application context"""
+    # Only start keep-alive if it's not already running
+    try:
+        import keep_alive
+        if not keep_alive.keep_alive_service.running:
+            init_keep_alive_service()
+    except ImportError:
+        logger.warning("Could not import keep_alive module")
+    except Exception as e:
+        logger.error(f"Error initializing services: {str(e)}")
+
 if __name__ == '__main__':
+    # Try to initialize keep-alive service (will be retried if failed)
+    init_keep_alive_service()
+    
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=True)

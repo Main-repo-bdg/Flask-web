@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+
+{% block title %}Keep-Alive Service Status{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="card shadow-sm">
+        <div class="card-header {% if status.running %}bg-success{% else %}bg-danger{% endif %} text-white">
+            <h4 class="mb-0">
+                <i class="fas fa-{% if status.running %}heartbeat{% else %}heart-broken{% endif %} me-2"></i>
+                Keep-Alive Service Status
+            </h4>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <h5>Configuration</h5>
+                    <table class="table table-sm">
+                        <tbody>
+                            <tr>
+                                <th width="40%">Status</th>
+                                <td>
+                                    {% if status.running %}
+                                    <span class="badge bg-success">Running</span>
+                                    {% else %}
+                                    <span class="badge bg-danger">Stopped</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            <tr>
+                                <th>Enabled</th>
+                                <td>
+                                    {% if status.enabled %}
+                                    <span class="badge bg-success">Yes</span>
+                                    {% else %}
+                                    <span class="badge bg-danger">No</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            <tr>
+                                <th>Base URL</th>
+                                <td>{{ status.base_url }}</td>
+                            </tr>
+                            <tr>
+                                <th>Ping Interval</th>
+                                <td>{{ status.interval_minutes }} minutes</td>
+                            </tr>
+                            <tr>
+                                <th>Health Endpoint</th>
+                                <td><code>{{ status.endpoint }}</code></td>
+                            </tr>
+                            <tr>
+                                <th>Uptime</th>
+                                <td>{{ status.uptime_formatted }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div class="col-md-6">
+                    <h5>Statistics</h5>
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <div class="p-3 border rounded bg-light text-center">
+                                <h3 class="mb-0">{{ status.ping_count }}</h3>
+                                <small class="text-muted">Total Pings</small>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="p-3 border rounded bg-light text-center">
+                                <h3 class="mb-0">{{ status.error_count }}</h3>
+                                <small class="text-muted">Errors</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <h6>Last Ping</h6>
+                            {% if status.last_ping_time %}
+                            <p class="mb-0 text-success">
+                                <i class="fas fa-clock me-1"></i>
+                                {{ status.last_ping_time }}
+                            </p>
+                            {% else %}
+                            <p class="mb-0 text-muted">No pings recorded yet</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                    
+                    {% if status.stats.last_error %}
+                    <div class="card border-warning">
+                        <div class="card-body">
+                            <h6 class="text-warning">Last Error</h6>
+                            <p class="mb-1">
+                                <i class="fas fa-exclamation-triangle me-1"></i>
+                                {{ status.stats.last_error.time }}
+                            </p>
+                            <p class="mb-0 text-truncate">{{ status.stats.last_error.message }}</p>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        <div class="card-footer">
+            <div class="d-flex justify-content-between">
+                <div>
+                    <a href="{{ url_for('health_check') }}" class="btn btn-outline-primary" target="_blank">
+                        <i class="fas fa-stethoscope me-1"></i>
+                        Test Health Endpoint
+                    </a>
+                </div>
+                <div>
+                    <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">
+                        <i class="fas fa-arrow-left me-1"></i>
+                        Back to Home
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="card mt-4">
+        <div class="card-header">
+            <h5 class="mb-0">About the Keep-Alive Service</h5>
+        </div>
+        <div class="card-body">
+            <p>
+                The Keep-Alive service ensures that your Render-hosted application stays active
+                by sending periodic requests, preventing it from spinning down due to inactivity
+                on the free tier (which normally happens after 15 minutes of inactivity).
+            </p>
+            
+            <h6>How it works:</h6>
+            <ol>
+                <li>A background thread runs in the application</li>
+                <li>Every {{ status.interval_minutes }} minutes, it sends a request to the health endpoint</li>
+                <li>This activity keeps the Render instance active</li>
+                <li>Requests include a special header to identify keep-alive requests</li>
+            </ol>
+            
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle me-2"></i>
+                <strong>Note:</strong> This service runs within your application and only works when the 
+                application is already running. If your application gets spun down, you would need an 
+                external service to wake it up initially.
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
