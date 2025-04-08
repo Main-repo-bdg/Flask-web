@@ -230,8 +230,21 @@ def init_keep_alive(app_url, interval_minutes=10, endpoint='/health', enabled=Tr
         interval_minutes (int): Time between pings in minutes.
         endpoint (str): The endpoint to ping.
         enabled (bool): Whether the service is enabled.
+        
+    Returns:
+        bool: True if the service started successfully, False otherwise.
     """
     global keep_alive_service
+    
+    # Validate parameters
+    if not app_url:
+        logging.error("Cannot initialize keep-alive service: No application URL provided")
+        return False
+        
+    # Ensure URL has protocol
+    if not app_url.startswith(('http://', 'https://')):
+        app_url = 'https://' + app_url
+        logging.warning(f"Added https:// protocol to URL: {app_url}")
     
     # Configure the service
     keep_alive_service.base_url = app_url
@@ -239,9 +252,28 @@ def init_keep_alive(app_url, interval_minutes=10, endpoint='/health', enabled=Tr
     keep_alive_service.endpoint = endpoint
     keep_alive_service.enabled = enabled
     
+    # Restart if already running
+    if keep_alive_service.running:
+        try:
+            keep_alive_service.stop()
+            logging.info("Stopped existing keep-alive service before restart")
+        except Exception as e:
+            logging.warning(f"Error stopping existing keep-alive service: {str(e)}")
+    
     # Start the service if enabled
     if enabled:
-        return keep_alive_service.start()
+        try:
+            success = keep_alive_service.start()
+            if success:
+                logging.info(f"Started keep-alive service pinging {app_url}{endpoint} every {interval_minutes} minutes")
+            else:
+                logging.error("Failed to start keep-alive service")
+            return success
+        except Exception as e:
+            logging.error(f"Exception starting keep-alive service: {str(e)}")
+            return False
+    
+    logging.info("Keep-alive service not started because it is disabled")
     return False
 
 def get_keep_alive_status():
