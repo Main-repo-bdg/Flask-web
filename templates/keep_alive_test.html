@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+
+{% block title %}Keep-Alive Service Test{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="card shadow">
+        <div class="card-header {% if result.init_result.success %}bg-success{% elif result.has_module %}bg-warning{% else %}bg-danger{% endif %} text-white">
+            <h4 class="mb-0">
+                <i class="fas {% if result.init_result.success %}fa-check-circle{% elif result.has_module %}fa-exclamation-triangle{% else %}fa-times-circle{% endif %} me-2"></i>
+                Keep-Alive Service Test Results
+            </h4>
+        </div>
+        <div class="card-body">
+            <div class="alert {% if result.init_result.success %}alert-success{% elif result.has_module %}alert-warning{% else %}alert-danger{% endif %} mb-4">
+                <div class="d-flex">
+                    <div class="me-3 fs-4">
+                        <i class="fas {% if result.init_result.success %}fa-check-circle{% elif result.has_module %}fa-exclamation-triangle{% else %}fa-times-circle{% endif %}"></i>
+                    </div>
+                    <div>
+                        <h5 class="alert-heading">
+                            {% if result.init_result.success %}
+                                Keep-Alive Service Is Working Properly
+                            {% elif result.has_module %}
+                                Keep-Alive Module Found But Service Has Issues
+                            {% else %}
+                                Keep-Alive Module Not Available
+                            {% endif %}
+                        </h5>
+                        <p class="mb-0">
+                            {% if result.init_result.success %}
+                                The service has been successfully initialized and is running.
+                            {% elif result.has_module %}
+                                The service module was found but there are issues with the initialization.
+                            {% else %}
+                                The keep_alive.py module could not be imported. Check that it exists in the application directory.
+                            {% endif %}
+                        </p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="row">
+                <div class="col-lg-6">
+                    <h5 class="mb-3">Environment Variables</h5>
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-sm">
+                            <tbody>
+                                {% for key, value in result.environment.items() %}
+                                <tr>
+                                    <th>{{ key }}</th>
+                                    <td>
+                                        {% if value == "Not set" %}
+                                        <span class="text-muted">{{ value }}</span>
+                                        {% else %}
+                                        {{ value }}
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <h5 class="mt-4 mb-3">Application Status</h5>
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-sm">
+                            <tbody>
+                                {% for key, value in result.app_info.items() %}
+                                <tr>
+                                    <th>{{ key|replace('_', ' ')|title }}</th>
+                                    <td>
+                                        {% if value %}
+                                        <span class="badge bg-success">Yes</span>
+                                        {% else %}
+                                        <span class="badge bg-danger">No</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <div class="col-lg-6">
+                    <h5 class="mb-3">Initialization Results</h5>
+                    <div class="card border-{% if result.init_result.success %}success{% else %}danger{% endif %} mb-4">
+                        <div class="card-header bg-{% if result.init_result.success %}success{% else %}danger{% endif %} text-white">
+                            <strong>Status: {% if result.init_result.success %}Success{% else %}Failed{% endif %}</strong>
+                        </div>
+                        <div class="card-body p-0">
+                            <ul class="list-group list-group-flush">
+                                {% if result.init_result.steps_completed %}
+                                <li class="list-group-item">
+                                    <h6>Steps Completed</h6>
+                                    <ul class="mb-0">
+                                        {% for step in result.init_result.steps_completed %}
+                                        <li>{{ step|replace('_', ' ')|title }}</li>
+                                        {% endfor %}
+                                    </ul>
+                                </li>
+                                {% endif %}
+                                
+                                {% if result.init_result.errors %}
+                                <li class="list-group-item bg-light">
+                                    <h6 class="text-danger">Errors</h6>
+                                    <ul class="mb-0">
+                                        {% for error in result.init_result.errors %}
+                                        <li class="text-danger">{{ error }}</li>
+                                        {% endfor %}
+                                    </ul>
+                                </li>
+                                {% endif %}
+                                
+                                {% if result.init_result.warnings %}
+                                <li class="list-group-item">
+                                    <h6 class="text-warning">Warnings</h6>
+                                    <ul class="mb-0">
+                                        {% for warning in result.init_result.warnings %}
+                                        <li class="text-warning">{{ warning }}</li>
+                                        {% endfor %}
+                                    </ul>
+                                </li>
+                                {% endif %}
+                            </ul>
+                        </div>
+                    </div>
+                    
+                    {% if result.current_status %}
+                    <h5 class="mb-3">Current Service Status</h5>
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-sm">
+                            <tbody>
+                                <tr>
+                                    <th>Running</th>
+                                    <td>
+                                        {% if result.current_status.running %}
+                                        <span class="badge bg-success">Yes</span>
+                                        {% else %}
+                                        <span class="badge bg-danger">No</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th>Ping Count</th>
+                                    <td>{{ result.current_status.ping_count or 0 }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Error Count</th>
+                                    <td>{{ result.current_status.error_count or 0 }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Uptime</th>
+                                    <td>{{ result.current_status.uptime_formatted or 'Not running' }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            
+            {% if result.suggestions %}
+            <div class="alert alert-info mt-4">
+                <h5 class="alert-heading"><i class="fas fa-lightbulb me-2"></i>Suggestions</h5>
+                <ul class="mb-0">
+                    {% for suggestion in result.suggestions %}
+                    <li>{{ suggestion }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+        </div>
+        <div class="card-footer">
+            <div class="d-flex justify-content-between">
+                <a href="{{ url_for('keep_alive_status') }}" class="btn btn-primary">
+                    <i class="fas fa-heartbeat me-1"></i>Go to Keep-Alive Status
+                </a>
+                <div>
+                    <a href="{{ url_for('test_keep_alive') }}" class="btn btn-outline-primary me-2">
+                        <i class="fas fa-sync me-1"></i>Retest
+                    </a>
+                    <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">
+                        <i class="fas fa-arrow-left me-1"></i>Back to Home
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
