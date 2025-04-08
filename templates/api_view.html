@@ -1,0 +1,521 @@
+{% extends "base.html" %}
+
+{% block title %}
+    {% if endpoint == "submission" %}
+        Submission Data - {{ submission_id }}
+    {% elif endpoint == "sender_submissions" %}
+        Sender Data - {{ sender }}
+    {% elif endpoint == "senders" %}
+        All Senders
+    {% elif endpoint == "sync_status" %}
+        Dropbox Sync Status
+    {% else %}
+        API Data View
+    {% endif %}
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* API view specific styles */
+    .api-path {
+        font-family: monospace;
+        background-color: #f8f9fa;
+        padding: 0.5rem 1rem;
+        border-radius: 4px;
+        margin-bottom: 1rem;
+        border-left: 4px solid #0d6efd;
+    }
+    
+    .api-endpoint-info {
+        margin-bottom: 2rem;
+    }
+    
+    .data-table {
+        width: 100%;
+        margin-bottom: 1rem;
+    }
+    
+    .data-table th {
+        background-color: #f8f9fa;
+        border-bottom: 2px solid #dee2e6;
+    }
+    
+    .data-table td {
+        border-bottom: 1px solid #dee2e6;
+        vertical-align: top;
+        padding: 0.75rem;
+    }
+    
+    .data-card {
+        margin-bottom: 1rem;
+        border-radius: 4px;
+        border: 1px solid #dee2e6;
+    }
+    
+    .data-card-header {
+        background-color: #f8f9fa;
+        padding: 0.75rem 1rem;
+        border-bottom: 1px solid #dee2e6;
+        font-weight: bold;
+    }
+    
+    .data-card-body {
+        padding: 1rem;
+    }
+    
+    .json-code {
+        background-color: #f8f9fa;
+        padding: 1rem;
+        border-radius: 4px;
+        overflow-x: auto;
+        font-family: monospace;
+    }
+    
+    .data-tabs .nav-link.active {
+        font-weight: bold;
+        background-color: #f8f9fa;
+        border-bottom-color: transparent;
+    }
+    
+    .sync-status-card {
+        border-left: 4px solid;
+    }
+    
+    .sync-success {
+        border-left-color: #198754;
+    }
+    
+    .sync-warning {
+        border-left-color: #ffc107;
+    }
+    
+    .sync-error {
+        border-left-color: #dc3545;
+    }
+    
+    .sync-icon {
+        font-size: 2rem;
+        margin-right: 1rem;
+    }
+    
+    .sync-badge {
+        padding: 0.5rem 0.75rem;
+        border-radius: 50rem;
+        font-size: 0.75rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <ul class="nav nav-tabs card-header-tabs data-tabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <a class="nav-link active" id="formatted-tab" data-bs-toggle="tab" href="#formatted" role="tab" aria-controls="formatted" aria-selected="true">
+                    <i class="fas fa-table me-1"></i>Formatted View
+                </a>
+            </li>
+            <li class="nav-item" role="presentation">
+                <a class="nav-link" id="raw-tab" data-bs-toggle="tab" href="#raw" role="tab" aria-controls="raw" aria-selected="false">
+                    <i class="fas fa-code me-1"></i>Raw JSON
+                </a>
+            </li>
+            {% if endpoint == "sync_status" %}
+            <li class="nav-item" role="presentation">
+                <a class="nav-link" id="history-tab" data-bs-toggle="tab" href="#history" role="tab" aria-controls="history" aria-selected="false">
+                    <i class="fas fa-history me-1"></i>Sync History
+                </a>
+            </li>
+            {% endif %}
+        </ul>
+    </div>
+    <div class="card-body">
+        <div class="api-endpoint-info">
+            {% if endpoint == "submission" %}
+            <h2>Submission Data</h2>
+            <div class="api-path">
+                <strong>Endpoint:</strong> /api/data/{{ sender }}/{{ submission_id }}
+            </div>
+            <div class="d-flex mb-3">
+                <a href="{{ url_for('view_sender', sender=sender) }}" class="btn btn-outline-primary me-2">
+                    <i class="fas fa-arrow-left me-1"></i>Back to {{ sender }}
+                </a>
+                <a href="{{ url_for('get_submission_api', sender=sender, submission_id=submission_id) }}" class="btn btn-outline-secondary" target="_blank">
+                    <i class="fas fa-code me-1"></i>View Raw JSON
+                </a>
+            </div>
+            
+            {% elif endpoint == "sender_submissions" %}
+            <h2>Submissions for {{ sender }}</h2>
+            <div class="api-path">
+                <strong>Endpoint:</strong> /api/data/{{ sender }}
+            </div>
+            <div class="d-flex mb-3">
+                <a href="{{ url_for('list_senders_api', format='html') }}" class="btn btn-outline-primary me-2">
+                    <i class="fas fa-arrow-left me-1"></i>Back to All Senders
+                </a>
+                <a href="{{ url_for('list_submissions_api', sender=sender) }}" class="btn btn-outline-secondary" target="_blank">
+                    <i class="fas fa-code me-1"></i>View Raw JSON
+                </a>
+            </div>
+            
+            {% elif endpoint == "senders" %}
+            <h2>All Senders</h2>
+            <div class="api-path">
+                <strong>Endpoint:</strong> /api/data
+            </div>
+            <div class="d-flex mb-3">
+                <a href="{{ url_for('index') }}" class="btn btn-outline-primary me-2">
+                    <i class="fas fa-arrow-left me-1"></i>Back to Home
+                </a>
+                <a href="{{ url_for('list_senders_api') }}" class="btn btn-outline-secondary" target="_blank">
+                    <i class="fas fa-code me-1"></i>View Raw JSON
+                </a>
+            </div>
+            
+            {% elif endpoint == "sync_status" %}
+            <h2>Dropbox Sync Status</h2>
+            <div class="api-path">
+                <strong>Endpoint:</strong> /api/dropbox/sync/status
+            </div>
+            <div class="d-flex mb-3">
+                <a href="{{ url_for('index') }}" class="btn btn-outline-primary me-2">
+                    <i class="fas fa-arrow-left me-1"></i>Back to Home
+                </a>
+                <a href="{{ url_for('sync_data') }}" class="btn btn-primary me-2">
+                    <i class="fas fa-sync me-1"></i>Run Sync Now
+                </a>
+                <a href="{{ url_for('get_sync_status') }}" class="btn btn-outline-secondary" target="_blank">
+                    <i class="fas fa-code me-1"></i>View Raw JSON
+                </a>
+            </div>
+            {% else %}
+            <h2>API Data</h2>
+            <div class="api-path">
+                <strong>Endpoint:</strong> {{ request.path }}
+            </div>
+            {% endif %}
+        </div>
+        
+        <div class="tab-content">
+            <div class="tab-pane fade show active" id="formatted" role="tabpanel" aria-labelledby="formatted-tab">
+                {% if endpoint == "submission" %}
+                <div class="row">
+                    <div class="col-12">
+                        <div id="humanViewer" class="human-viewer">
+                            {% for key, value in data.items() %}
+                            <div class="data-card">
+                                <div class="data-card-header">{{ key | title }}</div>
+                                <div class="data-card-body">
+                                    {% if value is mapping %}
+                                    <table class="data-table">
+                                        {% for subkey, subvalue in value.items() %}
+                                        <tr>
+                                            <th width="30%">{{ subkey | title }}</th>
+                                            <td>
+                                                {% if subvalue is string %}
+                                                {{ subvalue }}
+                                                {% elif subvalue is mapping or subvalue is iterable and subvalue is not string %}
+                                                <pre class="json-code">{{ subvalue | tojson(indent=2) }}</pre>
+                                                {% else %}
+                                                {{ subvalue }}
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </table>
+                                    {% elif value is iterable and value is not string %}
+                                    <ol>
+                                        {% for item in value %}
+                                        <li>
+                                            {% if item is mapping %}
+                                            <table class="data-table">
+                                                {% for itemkey, itemvalue in item.items() %}
+                                                <tr>
+                                                    <th width="30%">{{ itemkey | title }}</th>
+                                                    <td>{{ itemvalue }}</td>
+                                                </tr>
+                                                {% endfor %}
+                                            </table>
+                                            {% else %}
+                                            {{ item }}
+                                            {% endif %}
+                                        </li>
+                                        {% endfor %}
+                                    </ol>
+                                    {% else %}
+                                    {{ value }}
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+                
+                {% elif endpoint == "sender_submissions" %}
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Title</th>
+                                <th>Timestamp</th>
+                                <th>Size</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for submission in data.submissions %}
+                            <tr>
+                                <td>{{ submission.id }}</td>
+                                <td>{{ submission.title }}</td>
+                                <td>{{ submission.timestamp }}</td>
+                                <td>{{ (submission.size / 1024)|round(1) }} KB</td>
+                                <td>
+                                    <a href="{{ url_for('get_submission_api', sender=sender, submission_id=submission.id, format='html') }}" class="btn btn-sm btn-primary">
+                                        <i class="fas fa-eye me-1"></i>View
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                
+                {% elif endpoint == "senders" %}
+                <div class="row row-cols-1 row-cols-md-3 g-4">
+                    {% for sender in data.senders %}
+                    <div class="col">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h5 class="card-title">
+                                    <i class="fas fa-user me-2"></i>{{ sender }}
+                                </h5>
+                                <p class="card-text">View submissions from this sender</p>
+                            </div>
+                            <div class="card-footer">
+                                <a href="{{ url_for('list_submissions_api', sender=sender, format='html') }}" class="btn btn-primary">
+                                    <i class="fas fa-folder-open me-1"></i>Browse Submissions
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                
+                {% elif endpoint == "sync_status" %}
+                <div class="row">
+                    <div class="col-md-6">
+                        {% set status_class = 'sync-success' if data.in_progress else ('sync-warning' if data.last_errors and data.last_errors|length > 0 else 'sync-success') %}
+                        {% set status_icon = 'spinner fa-spin' if data.in_progress else ('exclamation-triangle' if data.last_errors and data.last_errors|length > 0 else 'check-circle') %}
+                        {% set status_color = 'primary' if data.in_progress else ('warning' if data.last_errors and data.last_errors|length > 0 else 'success') %}
+                        
+                        <div class="card mb-4 sync-status-card {{ status_class }}">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center">
+                                    <div class="sync-icon text-{{ status_color }}">
+                                        <i class="fas fa-{{ status_icon }}"></i>
+                                    </div>
+                                    <div>
+                                        <h4 class="mb-0">
+                                            {% if data.in_progress %}
+                                            Sync in Progress
+                                            {% elif data.last_errors and data.last_errors|length > 0 %}
+                                            Sync Completed with Warnings
+                                            {% else %}
+                                            Sync Healthy
+                                            {% endif %}
+                                        </h4>
+                                        <div class="text-muted">
+                                            {% if data.last_sync %}
+                                            Last sync: {{ data.last_sync }}
+                                            {% else %}
+                                            No sync performed yet
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="card mb-4">
+                            <div class="card-header">
+                                <h5 class="mb-0">Sync Statistics</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-6">
+                                        <div class="card bg-light mb-3">
+                                            <div class="card-body text-center">
+                                                <h1 class="display-4">{{ data.successful_syncs }}</h1>
+                                                <div class="text-muted">Successful Syncs</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-6">
+                                        <div class="card bg-light mb-3">
+                                            <div class="card-body text-center">
+                                                <h1 class="display-4">{{ data.files_synced }}</h1>
+                                                <div class="text-muted">Files Synced</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <table class="table table-sm">
+                                    <tbody>
+                                        <tr>
+                                            <th>Total Syncs</th>
+                                            <td>{{ data.total_syncs }}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>Success Rate</th>
+                                            <td>
+                                                {% if data.total_syncs > 0 %}
+                                                {{ ((data.successful_syncs / data.total_syncs) * 100)|round }}%
+                                                {% else %}
+                                                N/A
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <th>Last Successful Sync</th>
+                                            <td>{{ data.last_successful_sync or 'Never' }}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>Last Sync Duration</th>
+                                            <td>
+                                                {% if data.last_sync_duration %}
+                                                {{ data.last_sync_duration|round(1) }} seconds
+                                                {% else %}
+                                                N/A
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        {% if data.last_errors and data.last_errors|length > 0 %}
+                        <div class="card mb-4">
+                            <div class="card-header">
+                                <h5 class="mb-0">Latest Errors</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="alert alert-warning">
+                                    <ul class="mb-0">
+                                        {% for error in data.last_errors %}
+                                        <li>{{ error }}</li>
+                                        {% endfor %}
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                        {% endif %}
+                        
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">Sync Actions</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="row g-3">
+                                    <div class="col-12">
+                                        <a href="{{ url_for('sync_data') }}" class="btn btn-primary w-100">
+                                            <i class="fas fa-sync me-1"></i>Run Full Two-Way Sync
+                                        </a>
+                                    </div>
+                                    <div class="col-6">
+                                        <a href="{{ url_for('sync_data', direction='to_dropbox') }}" class="btn btn-outline-primary w-100">
+                                            <i class="fas fa-cloud-upload-alt me-1"></i>Sync to Dropbox
+                                        </a>
+                                    </div>
+                                    <div class="col-6">
+                                        <a href="{{ url_for('sync_data', direction='from_dropbox') }}" class="btn btn-outline-primary w-100">
+                                            <i class="fas fa-cloud-download-alt me-1"></i>Sync from Dropbox
+                                        </a>
+                                    </div>
+                                    <div class="col-12">
+                                        <a href="{{ url_for('sync_data', force='true') }}" class="btn btn-outline-secondary w-100">
+                                            <i class="fas fa-exclamation-triangle me-1"></i>Force Sync (All Files)
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                {% else %}
+                <pre class="json-code">{{ data | tojson(indent=4) }}</pre>
+                {% endif %}
+            </div>
+            
+            <div class="tab-pane fade" id="raw" role="tabpanel" aria-labelledby="raw-tab">
+                <pre class="json-code">{{ data | tojson(indent=4) }}</pre>
+            </div>
+            
+            {% if endpoint == "sync_status" %}
+            <div class="tab-pane fade" id="history" role="tabpanel" aria-labelledby="history-tab">
+                {% if data.history and data.history|length > 0 %}
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Start Time</th>
+                                <th>Duration</th>
+                                <th>Files Synced</th>
+                                <th>Status</th>
+                                <th>Details</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for entry in data.history %}
+                            <tr>
+                                <td>{{ entry.start_time }}</td>
+                                <td>{{ entry.duration|round(1) }} seconds</td>
+                                <td>{{ entry.files_synced }}</td>
+                                <td>
+                                    {% if entry.success %}
+                                    <span class="badge bg-success">Success</span>
+                                    {% else %}
+                                    <span class="badge bg-warning">Warning</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if entry.errors and entry.errors|length > 0 %}
+                                    <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#errors-{{ loop.index }}">
+                                        Show Errors
+                                    </button>
+                                    <div class="collapse mt-2" id="errors-{{ loop.index }}">
+                                        <div class="card card-body">
+                                            <ul class="mb-0">
+                                                {% for error in entry.errors %}
+                                                <li>{{ error }}</li>
+                                                {% endfor %}
+                                            </ul>
+                                        </div>
+                                    </div>
+                                    {% else %}
+                                    <span class="text-muted">No errors</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>No sync history available yet.
+                </div>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

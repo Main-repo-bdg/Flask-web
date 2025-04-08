@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+
+{% block title %}Sync Job Started{% endblock %}
+
+{% block content %}
+<div class="container my-5">
+    <div class="card border-0 shadow-sm">
+        <div class="card-body p-5 text-center">
+            <div class="mb-4">
+                <i class="fas fa-sync fa-spin text-primary" style="font-size: 4rem;"></i>
+            </div>
+            
+            <h1 class="display-4 mb-4">Sync Job Started</h1>
+            
+            <p class="lead mb-4">
+                Your Dropbox synchronization job has been started in the background. 
+                It will continue running even if you leave this page.
+            </p>
+            
+            <div class="alert alert-info mb-4">
+                <strong>Sync Parameters:</strong><br>
+                Direction: <span class="badge bg-primary">{{ result.details.direction }}</span>
+                {% if result.details.force %}
+                <span class="badge bg-warning ms-2">Force Sync</span>
+                {% endif %}
+                {% if result.details.verify %}
+                <span class="badge bg-success ms-2">Verification Enabled</span>
+                {% endif %}
+            </div>
+            
+            <div class="d-grid gap-3 d-sm-flex justify-content-sm-center">
+                <a href="{{ url_for('get_sync_status', format='html') }}" class="btn btn-primary btn-lg px-4 gap-3">
+                    <i class="fas fa-chart-line me-2"></i>View Sync Status
+                </a>
+                <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-lg px-4">
+                    <i class="fas fa-home me-2"></i>Back to Home
+                </a>
+            </div>
+        </div>
+    </div>
+    
+    <div class="card border-0 shadow-sm mt-4">
+        <div class="card-header bg-light">
+            <h5 class="mb-0">Current Sync Status</h5>
+        </div>
+        <div class="card-body">
+            {% if result.current_status %}
+                {% if result.current_status.in_progress %}
+                <div class="alert alert-primary">
+                    <i class="fas fa-spinner fa-spin me-2"></i>A sync job is currently in progress.
+                </div>
+                {% endif %}
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Statistics</h6>
+                        <table class="table table-sm">
+                            <tr>
+                                <th>Total Syncs Run</th>
+                                <td>{{ result.current_status.total_syncs }}</td>
+                            </tr>
+                            <tr>
+                                <th>Successful Syncs</th>
+                                <td>{{ result.current_status.successful_syncs }}</td>
+                            </tr>
+                            <tr>
+                                <th>Total Files Synced</th>
+                                <td>{{ result.current_status.files_synced }}</td>
+                            </tr>
+                            <tr>
+                                <th>Last Sync</th>
+                                <td>{{ result.current_status.last_sync or 'Never' }}</td>
+                            </tr>
+                        </table>
+                    </div>
+                    <div class="col-md-6">
+                        {% if result.current_status.last_errors and result.current_status.last_errors|length > 0 %}
+                        <h6>Last Errors</h6>
+                        <div class="alert alert-warning">
+                            <ul class="mb-0">
+                                {% for error in result.current_status.last_errors %}
+                                <li>{{ error }}</li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            {% else %}
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>No sync status available.
+                </div>
+            {% endif %}
+        </div>
+    </div>
+    
+    <div class="text-center mt-5">
+        <p class="text-muted">
+            <i class="fas fa-info-circle me-1"></i>
+            The sync job runs in the background. You can check its progress on the 
+            <a href="{{ url_for('get_sync_status', format='html') }}">Sync Status</a> page.
+        </p>
+    </div>
+</div>
+{% endblock %}
