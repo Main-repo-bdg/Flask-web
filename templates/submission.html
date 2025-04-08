@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+
+{% block title %}Submission Details - Webhook Data Viewer{% endblock %}
+
+{% block extra_css %}
+<style>
+    .json-key {
+        color: #8839ef;
+        font-weight: bold;
+    }
+    .json-value-string {
+        color: #40a02b;
+    }
+    .json-value-number {
+        color: #fe640b;
+    }
+    .json-value-boolean {
+        color: #1e66f5;
+    }
+    .json-value-null {
+        color: #6c757d;
+    }
+    .json-viewer {
+        background-color: #f8f9fa;
+        border-radius: 4px;
+        padding: 15px;
+        font-family: monospace;
+    }
+</style>
+{% endblock %}
+
+{% block nav_items %}
+<li class="nav-item">
+    <a class="nav-link" href="{{ url_for('view_sender', sender=sender) }}">
+        <i class="fas fa-user me-1"></i>{{ sender }}
+    </a>
+</li>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>
+        <i class="fas fa-file-alt me-2"></i>
+        {{ submission_meta.title if submission_meta else "Submission Details" }}
+    </h2>
+    <a href="{{ url_for('view_sender', sender=sender) }}" class="btn btn-outline-secondary">
+        <i class="fas fa-arrow-left me-1"></i>Back to Submissions
+    </a>
+</div>
+
+{% if submission_meta %}
+<div class="alert alert-light mb-4">
+    <div class="row">
+        <div class="col-md-6">
+            <strong><i class="fas fa-calendar me-1"></i>Timestamp:</strong> 
+            {{ submission_meta.timestamp }}
+        </div>
+        <div class="col-md-6">
+            <strong><i class="fas fa-file-alt me-1"></i>ID:</strong> 
+            {{ submission_id }}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="card">
+    <div class="card-header">
+        <ul class="nav nav-tabs card-header-tabs" id="dataTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="formatted-tab" data-bs-toggle="tab" data-bs-target="#formatted" type="button" role="tab" aria-controls="formatted" aria-selected="true">
+                    <i class="fas fa-table me-1"></i>Formatted View
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="raw-tab" data-bs-toggle="tab" data-bs-target="#raw" type="button" role="tab" aria-controls="raw" aria-selected="false">
+                    <i class="fas fa-code me-1"></i>Raw View
+                </button>
+            </li>
+        </ul>
+    </div>
+    <div class="card-body">
+        <div class="tab-content" id="dataTabsContent">
+            <div class="tab-pane fade show active" id="formatted" role="tabpanel" aria-labelledby="formatted-tab">
+                <div id="jsonViewer" class="json-viewer"></div>
+            </div>
+            
+            <div class="tab-pane fade" id="raw" role="tabpanel" aria-labelledby="raw-tab">
+                <pre id="rawJson" class="bg-dark text-light p-3">{{ data|tojson(indent=2) }}</pre>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Function to recursively format JSON data for display
+    function formatJSON(obj, level = 0) {
+        const indent = '  '.repeat(level);
+        let html = '';
+        
+        if (Array.isArray(obj)) {
+            if (obj.length === 0) {
+                html += '[]';
+            } else {
+                html += '[\n';
+                obj.forEach((item, i) => {
+                    html += indent + '  ';
+                    html += formatJSON(item, level + 1);
+                    if (i < obj.length - 1) {
+                        html += ',';
+                    }
+                    html += '\n';
+                });
+                html += indent + ']';
+            }
+        } else if (obj === null) {
+            html += '<span class="json-value-null">null</span>';
+        } else if (typeof obj === 'object') {
+            if (Object.keys(obj).length === 0) {
+                html += '{}';
+            } else {
+                html += '{\n';
+                const keys = Object.keys(obj);
+                keys.forEach((key, i) => {
+                    html += indent + '  ' + '<span class="json-key">"' + key + '"</span>: ';
+                    html += formatJSON(obj[key], level + 1);
+                    if (i < keys.length - 1) {
+                        html += ',';
+                    }
+                    html += '\n';
+                });
+                html += indent + '}';
+            }
+        } else if (typeof obj === 'string') {
+            html += '<span class="json-value-string">"' + obj.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '"</span>';
+        } else if (typeof obj === 'number') {
+            html += '<span class="json-value-number">' + obj + '</span>';
+        } else if (typeof obj === 'boolean') {
+            html += '<span class="json-value-boolean">' + obj + '</span>';
+        } else {
+            html += obj;
+        }
+        
+        return html;
+    }
+
+    // Initialize the JSON viewer when the page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        const jsonData = {{ data|tojson }};
+        document.getElementById('jsonViewer').innerHTML = formatJSON(jsonData);
+    });
+</script>
+{% endblock %}
