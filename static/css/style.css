@@ -23,16 +23,79 @@ body {
     overflow-x: auto;
     line-height: 1.5;
     word-break: break-word;
+    position: relative;
+    padding-right: 40px; /* Make room for copy button */
 }
 
 /* Tab navigation styles */
 .nav-tabs .nav-link {
     color: #6c757d;
+    position: relative; /* For absolute positioning of copy buttons */
+    padding-right: 40px; /* Make room for copy button */
 }
 
 .nav-tabs .nav-link.active {
     font-weight: 500;
     color: #212529;
+}
+
+/* Copy button styles */
+.copy-btn {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 2;
+    font-size: 0.8rem;
+    padding: 2px 8px;
+}
+
+.api-path .copy-btn {
+    position: relative; /* Override absolute positioning for API paths */
+    transform: none;
+    top: auto;
+}
+
+button .copy-btn {
+    /* Fix nested button issue */
+    position: static;
+    display: inline-block;
+    margin-left: 8px;
+    transform: none;
+    pointer-events: all;
+}
+
+/* Fix for copy buttons in tab headers */
+.nav-tabs .nav-link .btn {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 10;
+    padding: 2px 6px;
+    font-size: 0.75rem;
+}
+
+.nav-tabs .nav-link .btn:hover,
+.nav-tabs .nav-link .btn:focus,
+.nav-tabs .nav-link .btn:active {
+    /* Prevent the tab from being activated when clicking the button */
+    background-color: rgba(0, 123, 255, 0.1);
+}
+
+/* Pre and code blocks */
+pre {
+    position: relative;
+    padding-right: 40px; /* Make room for copy button */
+}
+
+pre .copy-btn {
+    opacity: 0.5;
+    transition: opacity 0.2s;
+}
+
+pre:hover .copy-btn {
+    opacity: 1;
 }
 
 /* Table styles */
@@ -51,6 +114,30 @@ body {
     border-left: 4px solid #0d6efd;
 }
 
+/* Toast notifications */
+.toast-notification {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    padding: 10px 20px;
+    background-color: #212529;
+    color: white;
+    border-radius: 4px;
+    z-index: 1000;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    animation: toast-in 0.3s, toast-out 0.3s 2.7s forwards;
+}
+
+@keyframes toast-in {
+    from { transform: translateY(20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes toast-out {
+    from { transform: translateY(0); opacity: 1; }
+    to { transform: translateY(20px); opacity: 0; }
+}
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
     .card-header-tabs {
@@ -59,5 +146,14 @@ body {
     
     .btn-sm {
         margin-bottom: 5px;
+    }
+    
+    .nav-tabs .nav-link {
+        padding-right: 30px; /* Smaller padding on mobile */
+    }
+    
+    .nav-tabs .nav-link .btn {
+        padding: 0 4px;
+        font-size: 0.7rem;
     }
 }

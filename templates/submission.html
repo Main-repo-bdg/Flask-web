@@ -105,16 +105,25 @@
             <li class="nav-item" role="presentation">
                 <button class="nav-link active" id="human-tab" data-bs-toggle="tab" data-bs-target="#human" type="button" role="tab" aria-controls="human" aria-selected="true">
                     <i class="fas fa-user me-1"></i>Human View
+                    <button type="button" class="btn btn-sm btn-outline-secondary ms-2 copy-btn" id="copyHumanBtn" title="Copy as plain text">
+                        <i class="fas fa-copy"></i>
+                    </button>
                 </button>
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="developer-tab" data-bs-toggle="tab" data-bs-target="#developer" type="button" role="tab" aria-controls="developer" aria-selected="false">
                     <i class="fas fa-table me-1"></i>Developer View
+                    <button type="button" class="btn btn-sm btn-outline-secondary ms-2 copy-btn" id="copyDevBtn" title="Copy as formatted JSON">
+                        <i class="fas fa-copy"></i>
+                    </button>
                 </button>
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="raw-tab" data-bs-toggle="tab" data-bs-target="#raw" type="button" role="tab" aria-controls="raw" aria-selected="false">
                     <i class="fas fa-code me-1"></i>Raw View
+                    <button type="button" class="btn btn-sm btn-outline-secondary ms-2 copy-btn" id="copyRawBtn" title="Copy raw JSON">
+                        <i class="fas fa-copy"></i>
+                    </button>
                 </button>
             </li>
         </ul>
@@ -253,12 +262,164 @@
             return `<div class="human-value">${value}</div>`;
         }
     }
+    
+    // Function to convert JSON to plain text for the human view
+    function getHumanReadableText(obj) {
+        let result = '';
+        
+        if (typeof obj !== 'object' || obj === null) {
+            return String(obj);
+        }
+        
+        // Process object properties
+        for (const key in obj) {
+            if (Object.prototype.hasOwnProperty.call(obj, key)) {
+                // Format key (capitalize, remove underscores)
+                const formattedKey = key.replace(/_/g, ' ')
+                    .replace(/\b\w/g, l => l.toUpperCase());
+                
+                const value = obj[key];
+                result += formattedKey + ': ';
+                
+                if (typeof value === 'object' && value !== null) {
+                    if (Array.isArray(value)) {
+                        // Handle arrays
+                        result += '\n';
+                        value.forEach((item, index) => {
+                            result += '  - ' + getHumanReadableText(item).replace(/\n/g, '\n    ') + '\n';
+                        });
+                    } else {
+                        // Handle nested objects
+                        result += '\n';
+                        const nestedText = getHumanReadableText(value);
+                        result += nestedText.split('\n').map(line => '  ' + line).join('\n') + '\n';
+                    }
+                } else {
+                    // Handle primitive values
+                    result += value + '\n';
+                }
+            }
+        }
+        
+        return result;
+    }
 
     // Initialize the viewers when the page loads
     document.addEventListener('DOMContentLoaded', function() {
         const jsonData = {{ data|tojson }};
         document.getElementById('jsonViewer').innerHTML = formatJSON(jsonData);
         document.getElementById('humanViewer').innerHTML = formatHumanReadable(jsonData);
+        
+        // Set up the copy buttons for different views
+        setupCopyButtons(jsonData);
     });
+    
+    // Initialize copy buttons for all views
+    function setupCopyButtons(jsonData) {
+        // Human view copy button
+        const copyHumanBtn = document.getElementById('copyHumanBtn');
+        if (copyHumanBtn) {
+            copyHumanBtn.addEventListener('click', function(e) {
+                e.stopPropagation(); // Prevent triggering the tab switch
+                const humanText = getHumanReadableText(jsonData);
+                navigator.clipboard.writeText(humanText).then(() => {
+                    showToast('Human-readable text copied!');
+                    updateCopyButton(this);
+                });
+            });
+        }
+        
+        // Developer view copy button
+        const copyDevBtn = document.getElementById('copyDevBtn');
+        if (copyDevBtn) {
+            copyDevBtn.addEventListener('click', function(e) {
+                e.stopPropagation(); // Prevent triggering the tab switch
+                const formattedJson = JSON.stringify(jsonData, null, 2);
+                navigator.clipboard.writeText(formattedJson).then(() => {
+                    showToast('Formatted JSON copied!');
+                    updateCopyButton(this);
+                });
+            });
+        }
+        
+        // Raw view copy button
+        const copyRawBtn = document.getElementById('copyRawBtn');
+        if (copyRawBtn) {
+            copyRawBtn.addEventListener('click', function(e) {
+                e.stopPropagation(); // Prevent triggering the tab switch
+                const rawJson = document.getElementById('rawJson').textContent;
+                navigator.clipboard.writeText(rawJson).then(() => {
+                    showToast('Raw JSON copied!');
+                    updateCopyButton(this);
+                });
+            });
+        }
+    }
+    
+    // Update the copy button UI after copying
+    function updateCopyButton(button) {
+        const originalHTML = button.innerHTML;
+        button.innerHTML = '<i class="fas fa-check"></i>';
+        button.disabled = true;
+        
+        setTimeout(() => {
+            button.innerHTML = originalHTML;
+            button.disabled = false;
+        }, 2000);
+    }
+    
+    // Show toast notification
+    function showToast(message) {
+        // Try to use the global toast function if it exists
+        if (typeof window.showToast === 'function') {
+            window.showToast(message, 'success');
+            return;
+        }
+        
+        // Fallback implementation if the global function isn't available
+        const toast = document.createElement('div');
+        toast.className = 'toast-notification';
+        toast.innerHTML = `
+            <div class="toast-content">
+                <i class="fas fa-check-circle me-2"></i>${message}
+            </div>
+        `;
+        
+        // Add styles if they don't exist already
+        if (!document.getElementById('toast-styles')) {
+            const style = document.createElement('style');
+            style.id = 'toast-styles';
+            style.textContent = `
+                .toast-notification {
+                    position: fixed;
+                    bottom: 20px;
+                    right: 20px;
+                    padding: 12px 20px;
+                    background-color: #198754;
+                    color: white;
+                    border-radius: 4px;
+                    z-index: 1050;
+                    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+                    animation: toast-in 0.3s ease-in-out, toast-out 0.3s ease-in-out 2.7s forwards;
+                }
+                
+                @keyframes toast-in {
+                    from { transform: translateY(20px); opacity: 0; }
+                    to { transform: translateY(0); opacity: 1; }
+                }
+                
+                @keyframes toast-out {
+                    from { transform: translateY(0); opacity: 1; }
+                    to { transform: translateY(20px); opacity: 0; }
+                }
+            `;
+            document.head.appendChild(style);
+        }
+        
+        document.body.appendChild(toast);
+        setTimeout(() => {
+            document.body.removeChild(toast);
+        }, 3000);
+    }
 </script>
 {% endblock %}

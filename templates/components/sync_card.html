@@ -1,0 +1,67 @@
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0">
+            <i class="fas fa-sync me-2"></i>Dropbox Synchronization
+        </h5>
+    </div>
+    <div class="card-body">
+        <form id="syncForm">
+            <div class="row mb-3">
+                <div class="col-md-4">
+                    <label for="syncDirection" class="form-label">Sync Direction</label>
+                    <select id="syncDirection" class="form-select">
+                        <option value="both" selected>Two-way Sync</option>
+                        <option value="to_dropbox">To Dropbox</option>
+                        <option value="from_dropbox">From Dropbox</option>
+                    </select>
+                    <div class="form-text">Choose where to sync data</div>
+                </div>
+                <div class="col-md-8">
+                    <div class="d-flex align-items-center h-100 mt-2">
+                        <div class="form-check me-4">
+                            <input class="form-check-input" type="checkbox" id="forceSync">
+                            <label class="form-check-label" for="forceSync">
+                                Force Sync
+                            </label>
+                            <div class="form-text">Sync all files regardless of timestamps</div>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="verifySync" checked>
+                            <label class="form-check-label" for="verifySync">
+                                Verify Data
+                            </label>
+                            <div class="form-text">Verify file integrity after sync</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="d-grid">
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-sync-alt me-1"></i>Start Sync
+                </button>
+            </div>
+        </form>
+        
+        <div id="syncStatus" class="mt-3" style="display: none;"></div>
+        
+        <hr>
+        
+        <div class="d-flex justify-content-between">
+            <div class="quick-sync-actions">
+                <h6>Quick Actions</h6>
+                <div class="btn-group">
+                    <button type="button" class="btn btn-sm btn-outline-primary quick-sync-btn" data-direction="to_dropbox">
+                        <i class="fas fa-cloud-upload-alt me-1"></i>Upload to Dropbox
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary quick-sync-btn" data-direction="from_dropbox">
+                        <i class="fas fa-cloud-download-alt me-1"></i>Download from Dropbox
+                    </button>
+                </div>
+            </div>
+            <a href="/api/dropbox/sync/status?format=html" class="btn btn-sm btn-outline-primary align-self-end">
+                <i class="fas fa-chart-line me-1"></i>View Sync Status
+            </a>
+        </div>
+    </div>
+</div>
