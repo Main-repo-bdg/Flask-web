@@ -750,10 +750,13 @@ def test_dropbox_connection():
         result["error"] = f"Test failed: {str(e)}"
         return jsonify(result), 500
 
-# Health check endpoint
+# Health check endpoint for the keep-alive service
 @app.route('/health')
 def health_check():
-    """Health check endpoint providing basic application status"""
+    """Health check endpoint for the keep-alive service"""
+    # Check if this is a keep-alive request
+    is_keep_alive = request.headers.get('X-Keep-Alive') in ('true', 'test')
+    
     # Basic health check - could be expanded to check database, Dropbox connection, etc.
     status = {
         "status": "healthy",
@@ -768,15 +771,157 @@ def health_check():
         }
     }
     
-    logger.info(f"Health check requested from {request.remote_addr}")
+    # Only log non-keep-alive requests to avoid flooding the logs
+    if not is_keep_alive:
+        logger.info(f"Health check requested from {request.remote_addr}")
     
     return jsonify(status)
 
-# API status endpoint removed
+# Keep-alive status endpoint
+@app.route('/keep-alive/status')
+def keep_alive_status():
+    """Endpoint to view the keep-alive service status"""
+    try:
+        import keep_alive
+        status = keep_alive.get_keep_alive_status()
+        return render_template('keep_alive_status.html', status=status)
+    except ImportError:
+        return jsonify({"error": "Keep-alive service is not available"}), 404
 
-# Keep-alive test endpoint removed
+@app.route('/api/keep-alive/test', methods=['GET', 'POST'])
+def test_keep_alive():
+    """
+    Test endpoint to manually verify the keep-alive service.
+    This runs the initialization process again and returns detailed results.
+    """
+    try:
+        # Import the keep_alive module
+        try:
+            import keep_alive
+            has_module = True
+        except ImportError:
+            has_module = False
+        
+        # Get current status if available
+        current_status = None
+        if has_module:
+            try:
+                current_status = keep_alive.get_keep_alive_status()
+            except:
+                pass
+        
+        # Run the initialization process to ensure it's running
+        # Force environment variables for testing
+        os.environ['KEEP_ALIVE_ENABLED'] = 'true'
+        os.environ['FORCE_KEEP_ALIVE'] = 'true'
+        
+        # Make sure we have a test URL
+        if not os.environ.get('APP_URL') and not os.environ.get('RENDER_EXTERNAL_URL'):
+            hostname = request.host.split(':')[0]
+            port = request.host.split(':')[1] if ':' in request.host else '5000'
+            test_url = f"http://{hostname}:{port}"
+            os.environ['APP_URL'] = test_url
+        
+        # Run the full initialization
+        init_result = init_keep_alive_service(app=current_app)
+        
+        # Prepare comprehensive result
+        result = {
+            "has_module": has_module,
+            "current_status": current_status,
+            "init_result": init_result,
+            "environment": {
+                "KEEP_ALIVE_ENABLED": os.environ.get('KEEP_ALIVE_ENABLED'),
+                "FORCE_KEEP_ALIVE": os.environ.get('FORCE_KEEP_ALIVE'),
+                "APP_URL": os.environ.get('APP_URL'),
+                "RENDER_EXTERNAL_URL": os.environ.get('RENDER_EXTERNAL_URL'),
+                "RENDER": os.environ.get('RENDER'),
+                "HOST": os.environ.get('HOST'),
+                "PORT": os.environ.get('PORT')
+            },
+            "app_info": {
+                "has_keep_alive_init_status": hasattr(current_app, 'keep_alive_init_status'),
+                "has_keep_alive_init_started": hasattr(current_app, 'keep_alive_init_started'),
+                "has_keep_alive_init_completed": hasattr(current_app, 'keep_alive_init_completed')
+            }
+        }
+        
+        # If we still don't have the module, suggest checks
+        if not has_module:
+            result["suggestions"] = [
+                "Check that keep_alive.py exists in the application directory",
+                "Verify keep_alive.py has no syntax errors",
+                "Ensure the file has proper permissions",
+                "Check for ImportError details in the application logs"
+            ]
+            
+        # If HTML format is requested
+        best_format = request.accept_mimetypes.best_match(['application/json', 'text/html'])
+        if best_format == 'text/html' or request.args.get('format') == 'html':
+            return render_template('keep_alive_test.html', result=result)
+            
+        return jsonify(result)
+        
+    except Exception as e:
+        error_result = {
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
+        return jsonify(error_result), 500
 
-# Keep-alive service removed
+# Initialize the keep-alive service
+def init_keep_alive_service(app=None):
+    """
+    Initialize the keep-alive service with the application URL
+    
+    Args:
+        app: Flask application instance (optional)
+    
+    Returns:
+        dict: Status information about the initialization process
+    """
+    result = {
+        "success": False,
+        "enabled": False,
+        "app_url": None,
+        "interval_minutes": None,
+        "errors": [],
+        "warnings": [],
+        "diagnostics": [],
+        "environment": {}
+    }
+    
+    # 1. Check if service should be enabled
+    keep_alive_enabled = os.environ.get('KEEP_ALIVE_ENABLED', '').lower() in ('true', 'yes', '1', 't')
+    render_enabled = os.environ.get('RENDER', '').lower() in ('true', 'yes', '1', 't')
+    force_enabled = os.environ.get('FORCE_KEEP_ALIVE', '').lower() in ('true', 'yes', '1', 't')
+    
+    # Store environment status
+    result["environment"] = {
+        "KEEP_ALIVE_ENABLED": os.environ.get('KEEP_ALIVE_ENABLED', 'Not set'),
+        "RENDER": os.environ.get('RENDER', 'Not set'),
+        "FORCE_KEEP_ALIVE": os.environ.get('FORCE_KEEP_ALIVE', 'Not set'),
+        "RENDER_EXTERNAL_URL": os.environ.get('RENDER_EXTERNAL_URL', 'Not set'),
+        "APP_URL": os.environ.get('APP_URL', 'Not set'),
+        "KEEP_ALIVE_INTERVAL_MINUTES": os.environ.get('KEEP_ALIVE_INTERVAL_MINUTES', '10'),
+        "KEEP_ALIVE_ENDPOINT": os.environ.get('KEEP_ALIVE_ENDPOINT', '/health')
+    }
+    
+    if not (keep_alive_enabled or render_enabled or force_enabled):
+        message = "Keep-alive service not enabled (set KEEP_ALIVE_ENABLED=true to enable)"
+        logger.info(message)
+        result["diagnostics"].append(message)
+        return result
+    
+    # Service is enabled
+    result["enabled"] = True
+    logger.info("Keep-alive service is enabled")
+    result["diagnostics"].append("Keep-alive service is enabled via environment variables")
+    
+    # 2. Import keep_alive module
+    try:
+        import keep_alive
         result["diagnostics"].append("Successfully imported keep_alive module")
     except ImportError as e:
         error_msg = f"Could not import keep_alive module: {str(e)}"
