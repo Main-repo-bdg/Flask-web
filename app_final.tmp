@@ -772,13 +772,15 @@ def health_check():
     
     return jsonify(status)
 
+# API status endpoint removed
 
+# Keep-alive test endpoint removed
 
-
-
-
+# Keep-alive service removed
 
 if __name__ == '__main__':
     # Application startup
+    # Keep-alive call removed
+    
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=True)
